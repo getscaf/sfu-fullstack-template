@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.11.5](https://github.com/sixfeetup/scaf-fullstack-template/compare/v1.11.4...v1.11.5) (2026-02-05)
+
+### Bug Fixes
+
+* Update timezone from US/Eastern to America/New_York ([#155](https://github.com/sixfeetup/scaf-fullstack-template/issues/155)) ([38323ad](https://github.com/sixfeetup/scaf-fullstack-template/commit/38323ada7abe5d9cb0882ded30d279ec2f820608))
+
 ## [1.11.4](https://github.com/sixfeetup/scaf-fullstack-template/compare/v1.11.3...v1.11.4) (2026-01-29)
 
 ### Bug Fixes
