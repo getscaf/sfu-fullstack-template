@@ -15,7 +15,7 @@ copier__repo_name: my_awesome_scaf_project
 copier__repo_url: git@github.com:sixfeetup/my_awesome_scaf_project.git
 copier__source_control_organization_slug: sixfeetup
 copier__source_control_provider: github.com
-copier__timezone: US/Eastern
+copier__timezone: America/New_York
 copier__use_celery: n
 copier__use_sentry: n
 copier__version: 0.1.0
