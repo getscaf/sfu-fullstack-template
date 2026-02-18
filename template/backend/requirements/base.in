@@ -21,9 +21,7 @@ redis
 {%- endif %}
 
 {%- if copier__create_nextjs_frontend %}
+strawberry-graphql==0.292.0
 strawberry-graphql-django
-{%- endif %}
-
-{%- if copier__create_nextjs_frontend %}
 django-cors-headers
 {%- endif %}
