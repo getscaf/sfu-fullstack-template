@@ -48,7 +48,7 @@ NB: Before you continue, make sure that you have at least 5 to 10 GB of free
 space available to Docker. Note that Docker Desktop on MacOS has its own
 resource limits separate from the host.
 
-Run `scaf myproject https://github.com/sixfeetup/scaf-fullstack-template.git`,
+Run `scaf myproject https://github.com/getscaf/sfu-fullstack-template.git`,
 answer all the questions, and you'll have your new project!
 
 Inside `myproject/README.md`, you will have more documentation explaining how to
