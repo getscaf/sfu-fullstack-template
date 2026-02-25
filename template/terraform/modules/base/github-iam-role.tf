@@ -41,3 +41,28 @@ resource "aws_iam_role_policy_attachment" "ecr_push_policy_attachment" {
   policy_arn = aws_iam_policy.ecr_push_policy.arn
 }
 
+# Allow GitHub OIDC role to assume the Terraform plan role
+resource "aws_iam_policy" "terraform_plan_assume_role_policy" {
+  name        = "${var.app_name}-${var.repo_name}-terraform-plan-assume-role-policy"
+  description = "Policy to allow assuming TerraformPlanRole"
+
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect = "Allow",
+        Action = [
+          "sts:AssumeRole"
+        ],
+        Resource = [
+          "arn:aws:iam::${var.account_id}:role/TerraformPlanRole"
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "terraform_plan_assume_role_policy_attachment" {
+  role       = data.aws_iam_role.github_oidc_role.name
+  policy_arn = aws_iam_policy.terraform_plan_assume_role_policy.arn
+}
