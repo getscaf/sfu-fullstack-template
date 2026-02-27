@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.12.0](https://github.com/getscaf/sfu-fullstack-template/compare/v1.11.5...v1.12.0) (2026-02-27)
+
+### Features
+
+* **terraform:** allow assuming TerraformPlanRole from github oidc role ([#160](https://github.com/getscaf/sfu-fullstack-template/issues/160)) ([a886bb7](https://github.com/getscaf/sfu-fullstack-template/commit/a886bb70cd3e4e8a893091421d72e33af7b96a95))
+
+### Bug Fixes
+
+* template URL ([6ee59ef](https://github.com/getscaf/sfu-fullstack-template/commit/6ee59eff4be4dd1ae6b82224b736225378b829b6))
+
 ## [1.11.5](https://github.com/sixfeetup/scaf-fullstack-template/compare/v1.11.4...v1.11.5) (2026-02-05)
 
 ### Bug Fixes
