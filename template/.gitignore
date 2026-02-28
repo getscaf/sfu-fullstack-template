@@ -68,3 +68,4 @@ env
 
 # ignore .direnv
 .direnv/
+.envrc

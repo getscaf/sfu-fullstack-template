@@ -17,10 +17,9 @@ Consult the links below if you prefer to use Minikube or Docker Desktop instead:
 
        $ git clone {{ copier__repo_url }}
        $ cd {{ copier__project_slug }}
+       $ cp -n .envrc.example .envrc
 
 2. Prepare the environment variables. Edit the `.envrc` file to work for your environment.
-
-   **For personal environment configurations**: Create a `.envrc.local` file for your personal development settings that won't be committed to version control:
 
    ```bash
    # Example .envrc.local file
@@ -28,8 +27,6 @@ Consult the links below if you prefer to use Minikube or Docker Desktop instead:
    export LOG_LEVEL=debug
    export LOCAL_DEV_SETTING=custom_value
    ```
-
-   The `.envrc.local` file will be automatically loaded when you enter the directory (after `.envrc`), allowing you to override or add environment variables without modifying the shared `.envrc` file.
 
 ## Run the kubernetes cluster and the {{ copier__project_slug }} app to develop the code
 
@@ -56,7 +53,7 @@ To remove the cluster entirely:
        $ kind delete cluster --name {{ copier__project_slug }}
 
 To switch between different Scaf project contexts:
-      
+
       $ tilt down    # inside the codebase of the previous project
       $ make setup   # inside the codebase of the project you want to work on
       $ tilt up
