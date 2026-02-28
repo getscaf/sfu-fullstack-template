@@ -14,21 +14,20 @@ jobs:
     runs-on: ubuntu-latest
     environment: dev
     steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+          # Prevent checkout from persisting the GitHub App token in local git config
           persist-credentials: false
-
-      - name: Setup SSH
-        uses: webfactory/ssh-agent@v0.8.0
-        with:
-          ssh-private-key: ${{ secrets.GA_DEPLOY_KEY }}
-
-      # use SSH url to ensure git commit using a deploy key bypasses the main
-      # branch protection rule
-      - name: Configure Git for SSH Push
-        run: git remote set-url origin "git@github.com:${{ github.repository }}.git"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -44,4 +43,4 @@ jobs:
       - name: Run Semantic Release
         run: npx semantic-release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
