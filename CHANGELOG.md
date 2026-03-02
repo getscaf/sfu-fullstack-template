@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.13.0](https://github.com/getscaf/sfu-fullstack-template/compare/v1.12.0...v1.13.0) (2026-03-02)
+
+### Features
+
+* **github:** use scaf release bot to run semantic release ([#161](https://github.com/getscaf/sfu-fullstack-template/issues/161)) ([4723219](https://github.com/getscaf/sfu-fullstack-template/commit/4723219f3b8960ccc8cca21df4d64ca06bc8e17a))
+
 ## [1.12.0](https://github.com/getscaf/sfu-fullstack-template/compare/v1.11.5...v1.12.0) (2026-02-27)
 
 ### Features
