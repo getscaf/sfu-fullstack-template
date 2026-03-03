@@ -70,7 +70,9 @@ tasks:
             if [ -n "$EXPIRES_AT" ]; then
               EXPIRES_EPOCH=$(date -d "$EXPIRES_AT" +%s 2>/dev/null || echo 0)
               CURRENT_TIME=$(date +%s)
-              [ "$EXPIRES_EPOCH" -le "$CURRENT_TIME" ] && NEED_LOGIN=true
+              if [ "$EXPIRES_EPOCH" -le "$CURRENT_TIME" ]; then
+                NEED_LOGIN=true
+              fi
             else
               NEED_LOGIN=true
             fi
