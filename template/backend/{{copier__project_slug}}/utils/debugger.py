@@ -9,9 +9,10 @@ def pycharm_debugger():
     import pydevd_pycharm
 
     host_ip = os.getenv("DOCKER_GATEWAY_IP")
+    debug_port = int(os.getenv("DEBUGGER_PORT", default=6400))
     try:
         pydevd_pycharm.settrace(
-            host_ip, port=6400, stdoutToServer=True, stderrToServer=True, suspend=False
+            host_ip, port=debug_port, stdoutToServer=True, stderrToServer=True, suspend=False
         )
     except ConnectionRefusedError:
         msg = "Debugger connection failed. Check IDE debugger is running and try again. Continuing without debugger."
@@ -19,4 +20,7 @@ def pycharm_debugger():
 
 
 def vscode_debugger():
-    raise NotImplementedError("VSCode debugger not implemented")
+    logger.info("Debugpy connecting...")
+    import debugpy
+    debug_port = int(os.getenv("DEBUGGER_PORT", default=5678))
+    debugpy.listen(("0.0.0.0", debug_port))  # nosec B104

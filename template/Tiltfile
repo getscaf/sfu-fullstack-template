@@ -9,6 +9,11 @@ print(
 
 load("ext://syncback", "syncback")
 
+# Check for --debugpy argument
+config.define_bool("debugpy", False, "Enable debugpy debugging support")
+cfg = config.parse()
+enable_debugpy = cfg.get("debugpy", False)
+
 docker_build(
     "backend",
     context="backend",
@@ -29,9 +34,11 @@ docker_build(
 )
 {% endif %}
 
-k8s_yaml(
-    kustomize("./k8s/local/")
-)
+# Load kubernetes configuration
+if enable_debugpy:
+    k8s_yaml(local('./k8s/local/enable-debugpy.sh'))
+else:
+    k8s_yaml(kustomize("./k8s/local/"))
 
 syncback(
     "backend-sync",
@@ -55,6 +62,8 @@ syncback(
 {% if copier__create_nextjs_frontend %}
 k8s_resource(workload='frontend', port_forwards=3000)
 {% endif %}
+if enable_debugpy:
+    k8s_resource(workload='backend', port_forwards=5678)
 k8s_resource(workload='backend', port_forwards=8000)
 k8s_resource(workload='mailhog', port_forwards=8025)
 k8s_resource(workload='postgres', port_forwards=5432)
