@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.13.1](https://github.com/getscaf/sfu-fullstack-template/compare/v1.13.0...v1.13.1) (2026-03-03)
+
+### Bug Fixes
+
+* **taskfile:** aws auth check incorrectly returns non-zero ([#162](https://github.com/getscaf/sfu-fullstack-template/issues/162)) ([a174dc4](https://github.com/getscaf/sfu-fullstack-template/commit/a174dc4b44417764952f3c8de9a4f96c0e62f0e8))
+
 ## [1.13.0](https://github.com/getscaf/sfu-fullstack-template/compare/v1.12.0...v1.13.0) (2026-03-02)
 
 ### Features
