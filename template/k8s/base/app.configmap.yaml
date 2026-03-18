@@ -22,7 +22,8 @@ data:
   # Also probably need to add cython to local.in in that case.
   PYDEVD_USE_CYTHON: "NO"
   PYDEVD_USE_FRAME_EVAL: "NO"
-  PYTHONBREAKPOINT: "" # "utils.pycharm_debugger" for pycharm
+  PYTHONBREAKPOINT: "" # "utils.pycharm_debugger" for pycharm, "utils.vscode_debugger" for VS Code
+  DEBUGGER_PORT: "" # "6400" for pycharm, "5678" for VS Code
 {%- if copier__mail_service == 'Mailgun' %}
   MAILGUN_DOMAIN: "{{ copier__domain_name }}"
   MAILGUN_API_URL: "https://api.mailgun.net/v3"{%- endif %}
