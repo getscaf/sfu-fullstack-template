@@ -1,5 +1,5 @@
 # Build all of the dependencies then we will build the actual application image
-FROM python:3.13.18-slim-bookworm AS build
+FROM python:__PYTHON_FULL_VERSION__-slim-bookworm AS build
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -52,7 +52,7 @@ RUN set -x \
     -r /tmp/requirements/tests.txt; fi
 
 # Now we can build the application image
-FROM python:3.13.18-slim-bookworm
+FROM python:__PYTHON_FULL_VERSION__-slim-bookworm
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH="/app"

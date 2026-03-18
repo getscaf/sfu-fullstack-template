@@ -1,4 +1,4 @@
-image: python:3.13.18-slim-bookworm
+image: python:__PYTHON_VERSION__-slim-bookworm
 
 definitions:
   services:
