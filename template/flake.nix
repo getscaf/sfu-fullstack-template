@@ -48,8 +48,8 @@
             kubernetes-helm
             kubeseal
             nodejs_22
-            nodePackages.eslint
-            nodePackages.prettier
+            eslint
+            prettier
             openssh
             opentofu
             pass
