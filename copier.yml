@@ -3,6 +3,7 @@ _templates_suffix: ""
 
 _tasks:
   - python tasks.py
+  - bash scripts/update-python-version.sh
 
 _subdirectory: template
 
