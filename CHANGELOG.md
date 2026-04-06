@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.13.2](https://github.com/getscaf/sfu-fullstack-template/compare/v1.13.1...v1.13.2) (2026-04-06)
+
+### Bug Fixes
+
+* **nix:** replace nodePackages.eslint/prettier with top-level equivalents ([#167](https://github.com/getscaf/sfu-fullstack-template/issues/167)) ([4fd8556](https://github.com/getscaf/sfu-fullstack-template/commit/4fd855677990231d4f0eaee79ee2ee50b03875e8))
+
 ## [1.13.1](https://github.com/getscaf/sfu-fullstack-template/compare/v1.13.0...v1.13.1) (2026-03-03)
 
 ### Bug Fixes
