@@ -53,3 +53,7 @@ answer all the questions, and you'll have your new project!
 
 Inside `myproject/README.md`, you will have more documentation explaining how to
 use and configure your newly created project.
+
+## Architecture Decision Records
+
+Technical decisions for this project are documented in [`docs/adr/`](../docs/adr/README.md).
