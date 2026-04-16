@@ -25,4 +25,4 @@ The main branch remains protected by mandatory PR CI gating, ensuring it stays r
 - Dependabot PRs (currently paused) will resume with CI gating to keep CI tooling dependencies current.
 - SCAF to be updated to fetch pinned lock file artifacts during bootstrap instead of resolving dependencies live.
 - SCAF UI to be enhanced to allow users to select a specific release or opt into main explicitly, improving transparency and control.
-- Offline bootstrap remains unsupported by design; SCAF requires online access to fetch templates and artifacts.
+- Offline bootstrap remains unsupported by design; SCAF requires online access to fetch templates, artifacts and packages.
