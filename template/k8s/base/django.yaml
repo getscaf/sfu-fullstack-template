@@ -11,6 +11,7 @@ spec:
   ports:
     - port: 8000
       targetPort: http-server
+      name: wsgi
 ---
 apiVersion: apps/v1
 kind: Deployment
