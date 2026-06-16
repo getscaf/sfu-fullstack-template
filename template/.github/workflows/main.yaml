@@ -5,6 +5,7 @@ on: [ push, pull_request ]
 env:
   AWS_REGION: ${{ '{{ vars.AWS_REGION }}' }}
   AWS_ACCOUNT_ID: ${{ '{{ vars.AWS_ACCOUNT_ID }}' }}
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   check-lint-and-formatting:
@@ -19,9 +20,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
       - name: Frontend Lint & Typecheck & Test
         run: make check-lint-and-test-frontend
 {% endif %}
