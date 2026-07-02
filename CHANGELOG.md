@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.13.3](https://github.com/getscaf/sfu-fullstack-template/compare/v1.13.2...v1.13.3) (2026-07-02)
+
+### Bug Fixes
+
+* unblock frontend build [#183](https://github.com/getscaf/sfu-fullstack-template/issues/183) ([#184](https://github.com/getscaf/sfu-fullstack-template/issues/184)) ([4a8e7e6](https://github.com/getscaf/sfu-fullstack-template/commit/4a8e7e6f5f8b60eff08f37db632ad670b0770edb))
+
 ## [1.13.2](https://github.com/getscaf/sfu-fullstack-template/compare/v1.13.1...v1.13.2) (2026-04-06)
 
 ### Bug Fixes
