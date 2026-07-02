@@ -32,3 +32,14 @@ patches:
   target:
     kind: Deployment
     name: backend
+{%- if copier__use_celery %}
+- patch: |-
+    - op: add
+      path: /spec/template/spec/initContainers/0/env
+      value:
+        - name: POSTGRES_HOST
+          value: postgres
+  target:
+    kind: Deployment
+    name: celery
+{%- endif %}
