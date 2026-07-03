@@ -29,6 +29,30 @@ spec:
         app: celery
     spec:
       priorityClassName: app-medium-priority
+      initContainers:
+        - name: check-db-ready
+          image: postgres:17
+          command: [
+              "sh",
+              "-c",
+              "until pg_isready -h $(POSTGRES_HOST);
+              do echo waiting for postgres; sleep 2; done;",
+            ]
+        - name: wait-for-migrations
+          image: backend:latest
+          command:
+            - sh
+            - -c
+            - |
+              until python manage.py migrate --check; do
+                echo "waiting for migrations to be applied";
+                sleep 5;
+              done
+          envFrom:
+            - configMapRef:
+                name: app-config
+            - secretRef:
+                name: secrets-config
       containers:
         - name: celeryworker
           image: backend:latest
