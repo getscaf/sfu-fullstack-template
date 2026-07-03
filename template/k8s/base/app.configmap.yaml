@@ -18,7 +18,7 @@ data:
   # todo: see if PYDEVD_USE_* can be removed later, I was getting this error
   #  with pydevd-pycharm==243.26053.29:
   # cannot import name 'trace_dispatch' from '_pydevd_bundle.pydevd_trace_dispatch'
-  # (/app/lib/python3.12/site-packages/_pydevd_bundle/pydevd_trace_dispatch.py)
+  # (/app/lib/python3.14/site-packages/_pydevd_bundle/pydevd_trace_dispatch.py)
   # Also probably need to add cython to local.in in that case.
   PYDEVD_USE_CYTHON: "NO"
   PYDEVD_USE_FRAME_EVAL: "NO"
