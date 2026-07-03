@@ -18,7 +18,7 @@ spec:
       containers:
         - name: flower
           image: {{ copier__project_slug }}_local_django:latest
-          command: ["celery", "-A", "{{ copier__project_slug }}", "flower"]
+          command: ["celery", "-A", "{{ copier__project_slug }}.celery_app", "flower"]
           envFrom:
             - configMapRef:
                 name: django-config
@@ -26,7 +26,7 @@ spec:
         - name: celery-check-workers-ready
           image: {{ copier__project_slug }}_local_django:latest
           command:
-            ['sh', '-c', 'until celery -A {{ copier__project_slug }} inspect ping; do echo Waiting for Celery workers to be ready; sleep 5; done']
+            ['sh', '-c', 'until celery -A {{ copier__project_slug }}.celery_app inspect ping; do echo Waiting for Celery workers to be ready; sleep 5; done']
           envFrom:
             - configMapRef:
                 name: django-config
