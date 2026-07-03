@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.14.0](https://github.com/getscaf/sfu-fullstack-template/compare/v1.13.3...v1.14.0) (2026-07-03)
+
+### Features
+
+* add celery init containers [#179](https://github.com/getscaf/sfu-fullstack-template/issues/179) ([#185](https://github.com/getscaf/sfu-fullstack-template/issues/185)) ([27364ac](https://github.com/getscaf/sfu-fullstack-template/commit/27364acf603c4f36ff42c1f6b89c867d48e10ebd))
+
 ## [1.13.3](https://github.com/getscaf/sfu-fullstack-template/compare/v1.13.2...v1.13.3) (2026-07-02)
 
 ### Bug Fixes
