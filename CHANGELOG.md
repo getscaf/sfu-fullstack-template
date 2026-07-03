@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.14.1](https://github.com/getscaf/sfu-fullstack-template/compare/v1.14.0...v1.14.1) (2026-07-03)
+
+### Bug Fixes
+
+* avoid celery circular import [#186](https://github.com/getscaf/sfu-fullstack-template/issues/186) ([#187](https://github.com/getscaf/sfu-fullstack-template/issues/187)) ([30c484f](https://github.com/getscaf/sfu-fullstack-template/commit/30c484f52c95fa2a5d02c6948b38f730aa66247e))
+
 ## [1.14.0](https://github.com/getscaf/sfu-fullstack-template/compare/v1.13.3...v1.14.0) (2026-07-03)
 
 ### Features
