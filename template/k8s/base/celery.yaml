@@ -56,11 +56,11 @@ spec:
       containers:
         - name: celeryworker
           image: backend:latest
-          command: 
+          command:
             - celery
           args:
             - -A
-            - {{ copier__project_slug }}
+            - {{ copier__project_slug }}.celery_app
             - worker
             - -E
             - -l
@@ -72,11 +72,11 @@ spec:
                 name: secrets-config
         - name: celerybeat
           image: backend:latest
-          command: 
+          command:
             - celery
           args:
             - -A
-            - {{ copier__project_slug }}
+            - {{ copier__project_slug }}.celery_app
             - beat
           envFrom:
             - configMapRef:
@@ -88,11 +88,11 @@ spec:
             - name: flower-server
               containerPort: 5555
           image: backend:latest
-          command: 
+          command:
             - celery
           args:
             - -A
-            - {{ copier__project_slug }}
+            - {{ copier__project_slug }}.celery_app
             - flower
           envFrom:
             - configMapRef:

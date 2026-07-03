@@ -40,7 +40,7 @@ else:
 
 def remove_celery_files():
     file_names = [
-        os.path.join("backend", "{{ copier__project_slug }}", "celery.py"),
+        os.path.join("backend", "{{ copier__project_slug }}", "celery_app.py"),
         os.path.join("backend", "{{ copier__project_slug }}", "users", "tasks.py"),
         os.path.join(
             "backend",
