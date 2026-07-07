@@ -19,4 +19,23 @@ def pycharm_debugger():
 
 
 def vscode_debugger():
-    raise NotImplementedError("VSCode debugger not implemented")
+    logger.info("VSCode debugpy starting...")
+    import debugpy
+
+    # debugpy.listen() may only be called once per process; breakpoint() can fire
+    # multiple times, and runserver's reloader runs request code in the RUN_MAIN
+    # worker. Guard against re-listen; wait for the IDE to attach before pausing.
+    if not debugpy.is_client_connected():
+        try:
+            # Bind all interfaces so the port-forward can reach the pod; this
+            # debug server is dev-only (active only when PYTHONBREAKPOINT is set).
+            debugpy.listen(("0.0.0.0", 5678))  # nosec B104
+            logger.info(
+                "debugpy listening on 0.0.0.0:5678 - waiting for VSCode to attach..."
+            )
+        except RuntimeError:
+            logger.info("debugpy already listening; waiting for client.")
+        debugpy.wait_for_client()
+        logger.info("VSCode debugger attached.")
+
+    debugpy.breakpoint()

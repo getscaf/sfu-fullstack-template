@@ -56,7 +56,8 @@ env
 .envrc.local
 
 # vs code
-.vscode/
+.vscode/*
+!.vscode/launch.json
 .history/
 
 # terraform files
