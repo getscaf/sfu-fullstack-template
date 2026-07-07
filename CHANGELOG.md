@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.15.0](https://github.com/getscaf/sfu-fullstack-template/compare/v1.14.1...v1.15.0) (2026-07-07)
+
+### Features
+
+* add VSCode debugger support [#180](https://github.com/getscaf/sfu-fullstack-template/issues/180) ([#188](https://github.com/getscaf/sfu-fullstack-template/issues/188)) ([d831fef](https://github.com/getscaf/sfu-fullstack-template/commit/d831fef7982a1f8d2c8de4becd9d9e8a0f748340))
+
 ## [1.14.1](https://github.com/getscaf/sfu-fullstack-template/compare/v1.14.0...v1.14.1) (2026-07-03)
 
 ### Bug Fixes
