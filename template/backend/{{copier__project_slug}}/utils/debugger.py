@@ -27,7 +27,9 @@ def vscode_debugger():
     # worker. Guard against re-listen; wait for the IDE to attach before pausing.
     if not debugpy.is_client_connected():
         try:
-            debugpy.listen(("0.0.0.0", 5678))
+            # Bind all interfaces so the port-forward can reach the pod; this
+            # debug server is dev-only (active only when PYTHONBREAKPOINT is set).
+            debugpy.listen(("0.0.0.0", 5678))  # nosec B104
             logger.info(
                 "debugpy listening on 0.0.0.0:5678 - waiting for VSCode to attach..."
             )
