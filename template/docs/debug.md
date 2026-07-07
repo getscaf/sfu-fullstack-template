@@ -3,7 +3,8 @@
 The steps below describe how to set up interactive debugging with PyCharm or VSCode.
 
 ## PyCharm Debugging Setup
-Update `k8s/base/app.configmap.yaml` with `data` field `PYTHONBREAKPOINT: "utils.pycharm_debugger"`
+Set `PYTHONBREAKPOINT: "utils.pycharm_debugger"` in the `app-config` patch in
+`k8s/local/kustomization.yaml` (debugger config is local-only so it can't reach sandbox/prod).
 
 In PyCharm:
 
@@ -26,7 +27,7 @@ Unlike PyCharm, the pod runs the debug *server* and VSCode *attaches* to it, so 
 forwards the debug port (`5678`) into the pod for you.
 
 1. Set `PYTHONBREAKPOINT: "{{ copier__project_slug }}.utils.vscode_debugger"` in the
-   `data` field of `k8s/base/app.configmap.yaml`.
+   `app-config` patch in `k8s/local/kustomization.yaml` (debugger config is local-only).
 2. Run `tilt up`. Confirm the `backend` resource forwards both `8000` and `5678`.
 3. A `.vscode/launch.json` with an "Attach to Django (debugpy in k8s)" configuration is
    already included at the project root.

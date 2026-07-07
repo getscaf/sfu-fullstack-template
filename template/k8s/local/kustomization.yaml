@@ -29,9 +29,29 @@ patches:
       value:
         - name: DOCKER_GATEWAY_IP # used for debugger to reach out to host machine
           value: "172.17.0.1"
+    - op: add
+      path: /spec/template/spec/containers/0/ports/-
+      value:
+        name: debugpy
+        containerPort: 5678
   target:
     kind: Deployment
     name: backend
+# Debugger config is local-only so it can never reach sandbox/prod.
+# To debug, set PYTHONBREAKPOINT below; leave it "" to disable.
+- patch: |-
+    - op: add
+      path: /data/PYTHONBREAKPOINT
+      value: "" # "utils.pycharm_debugger" for pycharm, "{{ copier__project_slug }}.utils.vscode_debugger" for vscode
+    - op: add
+      path: /data/PYDEVD_USE_CYTHON
+      value: "NO"
+    - op: add
+      path: /data/PYDEVD_USE_FRAME_EVAL
+      value: "NO"
+  target:
+    kind: ConfigMap
+    name: app-config
 {%- if copier__use_celery %}
 - patch: |-
     - op: add

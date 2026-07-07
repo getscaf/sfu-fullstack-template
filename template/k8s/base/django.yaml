@@ -36,8 +36,6 @@ spec:
           ports:
             - name: http-server
               containerPort: 8000
-            - name: debugpy
-              containerPort: 5678
           envFrom:
             - configMapRef:
                 name: app-config
