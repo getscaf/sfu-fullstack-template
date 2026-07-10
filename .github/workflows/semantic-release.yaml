@@ -12,6 +12,8 @@ permissions:
 jobs:
   semantic-release:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     environment: dev
     steps:
       - name: Generate GitHub App token
@@ -32,7 +34,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "lts/*"
+          node-version: "24"
 
       - name: Install Dependencies
         run: npm clean-install
