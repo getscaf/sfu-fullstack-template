@@ -55,6 +55,7 @@
     "tailwindcss": "*",
     "typescript": "*",
     "typescript-eslint": "*",
+    "vite": "*",
     "vitest": "*"
   }
 }
