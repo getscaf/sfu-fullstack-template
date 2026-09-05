@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.15.1](https://github.com/getscaf/sfu-fullstack-template/compare/v1.15.0...v1.15.1) (2026-09-05)
+
+### Bug Fixes
+
+* pin vite as explicit devDependency [#189](https://github.com/getscaf/sfu-fullstack-template/issues/189) ([#190](https://github.com/getscaf/sfu-fullstack-template/issues/190)) ([92be587](https://github.com/getscaf/sfu-fullstack-template/commit/92be587d018943e4fa7e970f1185a7b26b71931b))
+
 ## [1.15.0](https://github.com/getscaf/sfu-fullstack-template/compare/v1.14.1...v1.15.0) (2026-07-07)
 
 ### Features
