@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.16.0](https://github.com/getscaf/sfu-fullstack-template/compare/v1.15.1...v1.16.0) (2026-09-22)
+
+### Features
+
+* pin node lts version at bootstrap [#192](https://github.com/getscaf/sfu-fullstack-template/issues/192) ([#193](https://github.com/getscaf/sfu-fullstack-template/issues/193)) ([b03474f](https://github.com/getscaf/sfu-fullstack-template/commit/b03474f4f7000e490256389df54e88dea49d9a88))
+
 ## [1.15.1](https://github.com/getscaf/sfu-fullstack-template/compare/v1.15.0...v1.15.1) (2026-09-05)
 
 ### Bug Fixes
