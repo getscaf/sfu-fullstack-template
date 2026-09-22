@@ -44,7 +44,7 @@ definitions:
 {% if copier__create_nextjs_frontend %}
     - step: &check-lint-and-test-frontend
         name: Frontend Lint & Typecheck & Test
-        image: node:20
+        image: node:__NODE_LTS_VERSION__
         caches:
           - node
         script:

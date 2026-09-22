@@ -24,7 +24,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "lts/*"
+          node-version: "__NODE_LTS_VERSION__"
 
       - name: Install Dependencies
         run: npm install semantic-release @semantic-release/changelog @semantic-release/git @semantic-release/github @semantic-release/commit-analyzer conventional-changelog-conventionalcommits
