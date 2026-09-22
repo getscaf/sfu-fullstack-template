@@ -1,4 +1,4 @@
-FROM node:lts AS base
+FROM node:__NODE_LTS_VERSION__ AS base
 FROM base AS build
 
 WORKDIR /app

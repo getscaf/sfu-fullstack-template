@@ -2,6 +2,7 @@
 _templates_suffix: ""
 
 _tasks:
+  - bash scripts/update-node-version.sh
   - python tasks.py
 
 _subdirectory: template

@@ -116,10 +116,10 @@ compile: backend/requirements/base.in backend/requirements/tests.in ## compile l
 		 uv pip compile --upgrade --output-file /local/local.txt /local/local.in"
 
 compile-frontend: frontend/package.json ## compile latest frontend dependencies to be built into the docker image
-	@docker run --rm --user node -w "/app" -v $(shell pwd)/frontend:/app node:lts /bin/bash -c "npm install"
+	@docker run --rm --user node -w "/app" -v $(shell pwd)/frontend:/app node:__NODE_LTS_VERSION__ /bin/bash -c "npm install"
 
 init-frontend-dependencies: ## compile initial frontend dependencies to be built into the docker image
-	@docker run --rm --user $(shell id -u):$(shell id -g) -w "/app" -v $(shell pwd)/frontend:/app -e npm_config_cache=/tmp/.npm node:lts /bin/bash -c \
+	@docker run --rm --user $(shell id -u):$(shell id -g) -w "/app" -v $(shell pwd)/frontend:/app -e npm_config_cache=/tmp/.npm node:__NODE_LTS_VERSION__ /bin/bash -c \
 		"xargs -n 5 npm install"
 
 shell-backend:  ## Shell into the running Django container
