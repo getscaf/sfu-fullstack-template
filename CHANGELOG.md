@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.16.1](https://github.com/getscaf/sfu-fullstack-template/compare/v1.16.0...v1.16.1) (2026-10-01)
+
+### Bug Fixes
+
+* resolve node lts major from nodejs.org ([#194](https://github.com/getscaf/sfu-fullstack-template/issues/194)) ([5b537aa](https://github.com/getscaf/sfu-fullstack-template/commit/5b537aa4edee61bd1ac368b6dae73f4ee807a25f))
+
 ## [1.16.0](https://github.com/getscaf/sfu-fullstack-template/compare/v1.15.1...v1.16.0) (2026-09-22)
 
 ### Features
