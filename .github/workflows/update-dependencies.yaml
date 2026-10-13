@@ -1,0 +1,121 @@
+name: Nightly dependency updates
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-dependency-updates
+  cancel-in-progress: false
+
+jobs:
+  update:
+    if: github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    environment: dev
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: frontend-runtime
+            paths: |
+              template/frontend/Dockerfile
+              template/.node-version
+              template/flake.nix
+              template/bitbucket-pipelines.yml
+          - group: backend-runtime
+            paths: |
+              template/backend/Dockerfile
+              template/.python-version
+              template/bitbucket-pipelines.yml
+          - group: python
+            paths: |
+              template/backend/requirements/base.txt
+              template/backend/requirements/local.txt
+              template/backend/requirements/production.txt
+              template/backend/requirements/tests.txt
+              template/backend/requirements/build.txt
+          - group: frontend-packages
+            paths: template/frontend/package-lock.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Check automation token
+        env:
+          UPDATE_TOKEN: ${{ secrets.DEPENDENCY_UPDATE_TOKEN }}
+        run: |
+          if [ -z "$UPDATE_TOKEN" ]; then
+            echo "::error::Set DEPENDENCY_UPDATE_TOKEN as documented in docs/dependency-updates.md"
+            exit 1
+          fi
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: template/.python-version
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: template/.node-version
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.3'
+      - name: Install resolver tools
+        run: pip install -r .github/requirements.txt
+      - name: Resolve this dependency group
+        env:
+          DEPENDENCY_GROUP: ${{ matrix.group }}
+        run: python .github/scripts/dependency_pins.py "$DEPENDENCY_GROUP"
+      # The dedicated token allows PR checks to run without human approval.
+      # Fixed branches update existing PRs, including failing ones.
+      - name: Create or update dependency PR
+        id: pr
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.DEPENDENCY_UPDATE_TOKEN }}
+          branch: automation/dependencies/${{ matrix.group }}
+          base: ${{ github.event.repository.default_branch }}
+          add-paths: ${{ matrix.paths }}
+          commit-message: 'chore(deps): update ${{ matrix.group }} pins'
+          title: 'chore(deps): update ${{ matrix.group }} pins'
+          body: |
+            Refresh the committed ${{ matrix.group }} dependency pins used by newly generated projects.
+
+            Test template and Dependency tests validate this commit before protected auto-merge is requested. A failing PR stays open and is refreshed on the next nightly run.
+
+            Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      - name: Validate PR checks and request protected auto-merge
+        if: steps.pr.outputs.pull-request-number && steps.pr.outputs.pull-request-operation != 'closed'
+        env:
+          GH_TOKEN: ${{ secrets.DEPENDENCY_UPDATE_TOKEN }}
+          PR_NUMBER: ${{ steps.pr.outputs.pull-request-number }}
+          PR_SHA: ${{ steps.pr.outputs.pull-request-head-sha }}
+        run: python .github/scripts/merge_dependency_pr.py "$GITHUB_REPOSITORY" "$PR_NUMBER" "$PR_SHA"
+
+  notify-failure:
+    needs: update
+    if: always() && (needs.update.result == 'failure' || needs.update.result == 'cancelled')
+    runs-on: ubuntu-latest
+    environment: dev
+    permissions: {}
+    steps:
+      - name: Notify Slack on failure
+        uses: slackapi/slack-github-action@v2.1.1
+        with:
+          errors: true
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            text: "Nightly dependency update failed: ${{ github.repository }}"
+            blocks:
+              - type: section
+                text:
+                  type: mrkdwn
+                  text: >-
+                    *Nightly dependency update failed*
+                    *Repository*: ${{ github.repository }}
+                    <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View workflow logs>
