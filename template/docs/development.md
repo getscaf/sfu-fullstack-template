@@ -73,11 +73,73 @@ This project has a NextJS frontend configured. You can access it at [http://loca
 
 ## Update dependencies
 
-To update the backend app dependencies, you must edit the `backend/requirements/*.in` files.
-Once you have made your changes, you need to regenerate the `backend/requirements/*.txt` files using:
+This project inherits committed dependency locks and explicit runtime versions
+from the template revision used to generate it. Setup installs those pins
+without resolving newer versions. The `.python-version` and `.node-version`
+files record the full runtime versions used by Docker and CI. Select these
+versions when running checks on the host. Nix packages are outside this exact
+runtime guarantee; the Nix Node attribute follows only the major version.
 
-       $ make compile
+### Python dependencies
 
+Edit the relevant `backend/requirements/*.in` declarations, then explicitly
+regenerate the locks:
+
+```bash
+make compile
+```
+
+This uses the Python image in `backend/Dockerfile`. It refreshes `build.txt`
+first, then `base.txt`, `production.txt`, `tests.txt`, and `local.txt`, using
+`base.txt` as a shared constraint for the latter three roles. `build.txt` pins
+pip, setuptools, wheel, uv, and their dependencies. Application installations
+use these tools with `--no-deps --no-build-isolation`, including when a package
+must build from a source distribution. Keep source constraints, such as the
+debugger version pin, unless you deliberately change them.
+
+Review and commit the edited `.in` files together with all changed `.txt`
+locks. Run formatting and lint checks, backend tests, and rebuild the backend
+image through the project's normal CI or Tilt workflow before merging.
+{% if copier__create_nextjs_frontend %}
+### Frontend dependencies
+
+Edit `frontend/package.json`, then refresh its lock with the pinned Node image:
+
+```bash
+make compile-frontend
+make check-lint-and-test-frontend
+```
+
+`make compile-frontend` runs `npm update --package-lock-only --ignore-scripts`
+against the existing lock. This explicit update respects manifest ranges,
+including Apollo compatibility constraints. It does not perform the fresh
+transitive resolution used by the template's nightly updater. Ordinary
+installs and checks use `npm ci`; run `make init-frontend-dependencies` to
+install the committed lock through Docker.
+
+Review and commit `frontend/package.json` and `frontend/package-lock.json`
+together, then run frontend lint, typecheck, tests, and an image build before
+merging.
+{% endif %}
+### Runtime changes
+
+For a deliberate Python upgrade, update `.python-version` and every Python
+stage in `backend/Dockerfile` together. Also update the Python image in
+`bitbucket-pipelines.yml` if that file is present. The template's automated
+policy updates patches within the current minor and Debian distribution;
+changing either is a deliberate project decision. Recompile and validate the
+Python locks when changing the runtime.
+For Node, update `.node-version` and the major in `flake.nix` together. Use a
+full stable LTS version for CI.
+{% if copier__create_nextjs_frontend %}
+Also update `frontend/Dockerfile` and the frontend image in
+`bitbucket-pipelines.yml` if that file is present. Retain the chosen Debian
+distribution, and validate `npm ci`, frontend checks, and the image build.
+{% endif %}
+GitHub workflows, where present, read the version files. Make targets derive
+their images from the Dockerfiles. Commit the coordinated runtime files and
+any resulting lock changes together. Apt packages and image digests are
+outside the runtime and package pinning policy.
 
 ## Resource Limits Consideration
 

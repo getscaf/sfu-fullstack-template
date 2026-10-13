@@ -1,7 +1,7 @@
 # Nightly dependency pin updates
 
-**Status:** Draft for review. Implementation began before this spec was written;
-the existing code is a draft and is paused pending review.
+**Status:** Approved for implementation by the 2026-10-13 handoff. The earlier
+uncommitted implementation was audited and revised against this design.
 
 **Issue:** [getscaf/sfu-fullstack-template#196](https://github.com/getscaf/sfu-fullstack-template/issues/196)
 
@@ -89,8 +89,10 @@ prerequisite or bootstrap task.
 
 ## Python lock generation
 
-There are 24 supported configurations: three boolean options (Celery, Sentry,
-frontend) and three mail-service values. The updater will:
+The updater evaluates 24 combinations of three boolean options (Celery, Sentry,
+frontend) and three mail-service values to generate and validate one shared
+compatible version set. This is a coverage technique, not 24 separate version
+sets or a requirement for users to maintain 24 projects. The updater will:
 
 1. Render every `.in` file for every configuration into a temporary directory.
 2. Resolve their combined declarations into compatible exact constraints for

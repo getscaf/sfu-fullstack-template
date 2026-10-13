@@ -57,3 +57,15 @@ use and configure your newly created project.
 ## Architecture Decision Records
 
 Technical decisions for this project are documented in [`docs/adr/`](../docs/adr/README.md).
+
+## Dependency updates
+
+New projects inherit committed Python and npm locks plus explicit Python and
+Node versions from their selected template revision. Bootstrap installs those
+pins; four independent nightly PR streams refresh them at 03:00 UTC and request
+auto-merge after validation under the repository's protection rules.
+
+See the [dependency update guide](../docs/dependency-updates.md) for the pinning
+policy, local update commands, GitHub token and Slack configuration, required
+checks, and hosted acceptance checklist. Instructions for updating an existing
+generated project are in its `docs/development.md`.
