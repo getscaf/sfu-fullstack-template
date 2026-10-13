@@ -1,9 +1,9 @@
-FROM node:__NODE_LTS_VERSION__ AS base
+FROM node:24.21.0-bookworm AS base
 FROM base AS build
 
 WORKDIR /app
 COPY package*.json ./
-RUN npm install
+RUN npm ci
 
 # copy node_modules from the build image
 FROM base
