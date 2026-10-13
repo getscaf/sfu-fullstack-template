@@ -1,8 +1,17 @@
 ## 2026-04-16 - Version Pinning Strategy
 
+**Status:** Proposal. The nightly implementation refines the cadence and
+delivery mechanism described here; release-selection tooling remains a
+separate proposal.
+
 ### Decision
 
-Reintroduce version pinning for the Full Stack template. CI will generate and store tested lock files weekly, and SCAF will fetch these pinned artifacts during bootstrap instead of resolving dependencies live.
+Reintroduce version pinning for the Full Stack template. Commit runtime
+versions and tested package locks in the template itself. Copier delivers
+these files with the selected template revision, and bootstrap installs them
+without resolving newer dependencies or fetching a separate lock artifact.
+Four independent nightly PR streams refresh the pins at 03:00 UTC and request
+auto-merge after validation through normal repository protection rules.
 
 ### Context & Rationale
 
@@ -11,9 +20,15 @@ The Full Stack template previously generated dependencies on the fly during boot
 The team evaluated two approaches:
 
 - **Unpinned (status quo):** Dependencies resolved at bootstrap time. Always fresh, but fragile — any upstream package change can silently break the bootstrap experience.
-- **Pinned with CI-driven updates ("cutting edge"):** Lock files generated from a known-working CI run and stored as artifacts. SCAF fetches these during bootstrap. Weekly CI runs regenerate and commit updated lock files, keeping the template current without exposing users to unverified upstream changes.
+- **Pinned with CI-driven updates ("cutting edge"):** Runtime versions and
+  complete package locks are committed alongside the template. Nightly CI
+  creates or updates dependency PRs, and validation gates their merge. Copier
+  includes the committed pins when generating a project.
 
-The team agreed that pinning with automated updates is the industry-standard approach and resolves the majority of existing bootstrap reliability issues. Because automated tests gate all lock file updates, manual PR review of weekly dependency updates is unnecessary — a failed CI run will block the update from landing.
+Pinning with automated updates reduces bootstrap failures caused by untested
+upstream changes. A failed check prevents an update from merging and leaves
+its PR available for investigation. Protected auto-merge respects required
+reviews, checks, and merge queues; it does not bypass them.
 
 The main branch remains protected by mandatory PR CI gating, ensuring it stays releasable. However, dependency breakage from packages outside the repo is best mitigated by pinned lock files from successful CI runs rather than relying on main's recency.
 
@@ -21,8 +36,24 @@ The main branch remains protected by mandatory PR CI gating, ensuring it stays r
 
 - Bootstrap reliability improves significantly: users get a dependency set known to work, not the latest unverified packages.
 - Bootstrap time may also improve, as preresolved lock files reduce install-time resolution overhead.
-- Weekly automated CI workflow to regenerate and commit updated lock files; no manual PR review required given test coverage.
-- Dependabot PRs (currently paused) will resume with CI gating to keep CI tooling dependencies current.
-- SCAF to be updated to fetch pinned lock file artifacts during bootstrap instead of resolving dependencies live.
-- SCAF UI to be enhanced to allow users to select a specific release or opt into main explicitly, improving transparency and control.
-- Offline bootstrap remains unsupported by design; SCAF requires online access to fetch templates, artifacts and packages.
+- Nightly automated PR streams update frontend runtime, backend runtime,
+  Python packages, and frontend packages independently. Stable branches reuse
+  open PRs; failed streams alert Slack while the other streams continue.
+- Python and Node use full stable runtime versions matching Docker and CI.
+  Python patch updates retain the current minor and Debian distribution. Node
+  follows stable LTS; Nix follows only its major and is outside the exact
+  runtime guarantee.
+- Python locks share one compatible version set with conditional optional
+  dependencies. Committed npm locks support `npm ci`. Source declarations
+  remain authoritative, including debugger pins and Apollo ranges.
+- Copier delivers committed locks and runtime files directly. Bootstrap no
+  longer compiles Python requirements or discovers the latest Node version.
+- Dependabot and CI/release-tool updates remain separate from the four
+  application/runtime streams.
+- A SCAF UI that lets users select a release or opt into main remains a
+  separate proposal; this pinning implementation does not deliver that UI.
+- Offline bootstrap remains unsupported by design; SCAF requires online
+  access to fetch templates, packages, and container images.
+
+Operational setup, update commands, scope limits, and hosted acceptance checks
+are documented in [`docs/dependency-updates.md`](../../dependency-updates.md).

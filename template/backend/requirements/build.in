@@ -1,0 +1,5 @@
+# Dependency installation and source-distribution build tools.
+pip
+uv
+setuptools
+wheel

@@ -1,4 +1,4 @@
-image: python:3.12
+image: python:3.13.16-slim-bookworm
 
 definitions:
   services:
@@ -22,6 +22,7 @@ definitions:
         caches:
           - pip
         script:
+          - apt-get update && apt-get install -y build-essential libpq-dev
           - export DATABASE_URL=postgres://{{ copier__project_slug }}:TESTPASSWORD@localhost:5432/{{ copier__project_slug }}
 {% if copier__use_celery %}
           - export CELERY_BROKER_URL=redis://127.0.0.1:6379/0
@@ -39,12 +40,13 @@ definitions:
         caches:
           - pip
         script:
+          - apt-get update && apt-get install -y make git
           - make check-lint-and-formatting
 
 {% if copier__create_nextjs_frontend %}
     - step: &check-lint-and-test-frontend
         name: Frontend Lint & Typecheck & Test
-        image: node:__NODE_LTS_VERSION__
+        image: node:24.21.0-bookworm
         caches:
           - node
         script:
