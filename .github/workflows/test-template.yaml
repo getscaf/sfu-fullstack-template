@@ -146,6 +146,10 @@ jobs:
           cd test-project
           SCAF_TEST_SLUG=$(python -c 'import yaml; print(yaml.safe_load(open(".copier-answers.yml"))["copier__project_slug"])')
           SCAF_TEST_NAMESPACE=$(kubectl get deployments --all-namespaces -l app=backend -o jsonpath='{.items[0].metadata.namespace}')
+          # The dev server, pytest and the isolated production-settings subprocess
+          # share this container's memory limit. Increase it only for the CI tests.
+          kubectl -n "$SCAF_TEST_NAMESPACE" set resources deployment/backend -c backend --limits=memory=1Gi
+          kubectl -n "$SCAF_TEST_NAMESPACE" rollout status deployment/backend --timeout=180s
           kubectl -n "$SCAF_TEST_NAMESPACE" exec deployment/backend -c backend -- \
             python -m pytest "$SCAF_TEST_SLUG" --ds=config.settings.test
 
