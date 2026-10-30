@@ -8,7 +8,7 @@ uvicorn[standard]
 
 # Django
 # ------------------------------------------------------------------------------
-django-storages[boto3] # https://github.com/jschneier/django-storages
+django-storages[boto3]>=1.14.6 # https://github.com/jschneier/django-storages
 daphne
 
 {%- if copier__mail_service == 'Mailgun' %}

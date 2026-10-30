@@ -1,13 +1,24 @@
 argon2-cffi
 crispy-bootstrap5
 daphne
+{% if copier__use_wagtail %}
+django>=6.0,<6.1
+wagtail>=7.4,<7.5
+nh3
+{% if copier__create_nextjs_frontend %}
+wagtail-headless-preview==0.9.0
+{% endif %}
+{% else %}
 django
+{% endif %}
 django-allauth
 django-crispy-forms
 django-environ
 django-model-utils
 django-redis
 Pillow
+# boto3 requires dateutil < 3; keep the base lock compatible with production S3.
+python-dateutil<3
 urllib3
 {% if copier__use_sentry %}
 sentry-sdk[django]

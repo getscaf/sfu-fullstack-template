@@ -63,6 +63,8 @@ SECURE_CONTENT_TYPE_NOSNIFF = env.bool(
 INSTALLED_APPS += ["storages"]  # noqa F405
 # https://django-storages.readthedocs.io/en/latest/backends/amazon-S3.html#settings
 AWS_STORAGE_BUCKET_NAME = env("DJANGO_AWS_STORAGE_BUCKET_NAME")
+AWS_S3_ACCESS_KEY_ID = env("AWS_S3_ACCESS_KEY_ID", default=None)
+AWS_S3_SECRET_ACCESS_KEY = env("AWS_S3_SECRET_ACCESS_KEY", default=None)
 # It is required to set AWS_S3_CUSTOM_DOMAIN when the bucket is private and static content is served through CloudFront
 AWS_S3_CUSTOM_DOMAIN = env("AWS_S3_CUSTOM_DOMAIN", default=None)
 AWS_S3_URL_PROTOCOL = env("AWS_S3_CUSTOM_DOMAIN_PROTOCOL", default="https:")
@@ -75,19 +77,30 @@ AWS_S3_OBJECT_PARAMETERS = {
     "CacheControl": f"max-age={_AWS_EXPIRY}, s-maxage={_AWS_EXPIRY}, must-revalidate"
 }
 #  https://django-storages.readthedocs.io/en/latest/backends/amazon-S3.html#settings
-AWS_DEFAULT_ACL = "public-read"
+AWS_DEFAULT_ACL = None
 # https://django-storages.readthedocs.io/en/latest/backends/amazon-S3.html#settings
 AWS_S3_REGION_NAME = env("DJANGO_AWS_REGION_NAME", default="us-east-1")
 
 # STATIC
 # ------------------------
-STATICFILES_STORAGE = "{{ copier__project_slug }}.utils.cloud_storage.S3StaticStorage"
-STATIC_URL = f"https://{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com/static/"
+STORAGES = {
+    "default": {
+        "BACKEND": "{{ copier__project_slug }}.utils.cloud_storage.S3MediaStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "{{ copier__project_slug }}.utils.cloud_storage.S3StaticStorage",
+    },
+}
+_ASSET_ORIGIN = (
+    f"{AWS_S3_URL_PROTOCOL}//{AWS_S3_CUSTOM_DOMAIN}"
+    if AWS_S3_CUSTOM_DOMAIN
+    else f"https://{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com"
+)
+STATIC_URL = f"{_ASSET_ORIGIN}/static/"
 
 # MEDIA
 # ------------------------------------------------------------------------------
-DEFAULT_FILE_STORAGE = "{{ copier__project_slug }}.utils.cloud_storage.S3MediaStorage"
-MEDIA_URL = f"https://{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com/media/"
+MEDIA_URL = f"{_ASSET_ORIGIN}/media/"
 
 # TEMPLATES
 # ------------------------------------------------------------------------------

@@ -20,22 +20,14 @@ HINT = "\x1b[3;33m"
 SUCCESS = "\x1b[1;32m [SUCCESS]: "
 
 
-create_nextjs_frontend = "{{ copier__create_nextjs_frontend }}"
-if create_nextjs_frontend == "False":
+def remove_frontend_files():
     shutil.rmtree("frontend")
-    file_names = [
-        os.path.join("k8s", "base", "frontend.yaml"),
+    os.remove(os.path.join("k8s", "base", "frontend.yaml"))
+    os.remove(
         os.path.join(
-            "argocd",
-            "base",
-            "{{ copier__project_slug }}",
-            "cloudfront-invalidation-hook.yaml",
-        ),
-    ]
-    for file_name in file_names:
-        os.remove(file_name)
-else:
-    subprocess.run(shlex.split("make init-frontend-dependencies"), check=True)
+            "argocd", "base", "{{ copier__project_slug }}", "cloudfront-invalidation-hook.yaml"
+        )
+    )
 
 
 def remove_celery_files():
@@ -248,23 +240,46 @@ def run_setup():
     subprocess.run(shlex.split("git commit -m 'Initial commit' --quiet"), check=True)
 
 
-def main():
-    set_flags_in_secrets()
-
+def cleanup_generated_files():
+    """Remove unused integrations without running dependency or cluster setup."""
+    if "{{ copier__create_nextjs_frontend }}" == "False":
+        remove_frontend_files()
+        remove_graphql_files()
+        for name in ["api.py", "serializers.py"]:
+            path = os.path.join("backend/{{ copier__project_slug }}/cms", name)
+            if os.path.exists(path):
+                os.remove(path)
     if "{{ copier__use_celery }}" != "True":
         remove_celery_files()
-
     if "{{ copier__source_control_provider }}" != "bitbucket.org":
         remove_bitbucket_files()
-
     if "{{ copier__source_control_provider }}" != "github.com":
         remove_github_files()
-
     if "{{ copier__use_sentry }}" == "False":
         remove_sentry_files()
+    if "{{ copier__use_wagtail }}" == "False":
+        for path in [
+            "backend/{{ copier__project_slug }}/cms",
+            "docs/wagtail.md",
+            "frontend/lib/cms.ts",
+            "frontend/lib/cms-origins.ts",
+            "frontend/types/cms.ts",
+            "frontend/components/cms",
+            "frontend/pages/content",
+            "frontend/pages/cms-preview.tsx",
+            "frontend/__tests__/cms",
+        ]:
+            if os.path.isdir(path):
+                shutil.rmtree(path)
+            elif os.path.exists(path):
+                os.remove(path)
 
-    if "{{ copier__create_nextjs_frontend }}" == "False":
-        remove_graphql_files()
+
+def main():
+    set_flags_in_secrets()
+    cleanup_generated_files()
+    if "{{ copier__create_nextjs_frontend }}" == "True":
+        subprocess.run(shlex.split("make init-frontend-dependencies"), check=True)
 
     # Format code using black and isort (versions should match .pre-commit-config.yaml)
     subprocess.run(shlex.split("black ./backend"), check=True)

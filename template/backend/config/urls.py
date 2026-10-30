@@ -6,6 +6,16 @@ from django.urls import include, path
 from django.views import defaults as default_views
 from django.views.generic import TemplateView
 
+{%- if copier__use_wagtail %}
+from wagtail import urls as wagtail_urls
+from wagtail.admin import urls as wagtailadmin_urls
+from wagtail.documents import urls as wagtaildocs_urls
+from {{ copier__project_slug }}.cms.views import serve_public_media
+{%- if copier__create_nextjs_frontend %}
+from {{ copier__project_slug }}.cms.api import api_router, resolve_redirect
+{%- endif %}
+{%- endif %}
+
 {%- if copier__create_nextjs_frontend %}
 from django.views.decorators.csrf import csrf_exempt
 from strawberry.django.views import GraphQLView
@@ -25,7 +35,25 @@ urlpatterns = [
     path("users/", include("{{ copier__project_slug }}.users.urls", namespace="users")),
     path("accounts/", include("allauth.urls")),
     # Your stuff: custom urls includes go here
-] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+]
+{%- if copier__use_wagtail %}
+urlpatterns += [
+    path("cms/", include(wagtailadmin_urls)),
+    path("documents/", include(wagtaildocs_urls)),
+]
+{%- if copier__create_nextjs_frontend %}
+urlpatterns += [
+    path("api/cms/v2/redirect/", resolve_redirect, name="cms_redirect"),
+    path("api/cms/v2/", api_router.urls),
+]
+{%- endif %}
+urlpatterns += [path("content/", include(wagtail_urls))]
+urlpatterns += static(
+    settings.MEDIA_URL, view=serve_public_media, document_root=settings.MEDIA_ROOT
+)
+{%- else %}
+urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+{%- endif %}
 if settings.DEBUG:
     # Static file serving when using Gunicorn + Uvicorn for local web socket development
     urlpatterns += staticfiles_urlpatterns()

@@ -50,6 +50,17 @@ resource "aws_cloudfront_distribution" "cloudfront" {
     }
   }
 
+  {% for asset_path in (["/static/*", "/media/original_images/*", "/media/images/*", "/media/avatar_images/*"] if copier__use_wagtail else ["/static/*", "/media/*"]) %}
+  ordered_cache_behavior {
+    path_pattern           = "{{ asset_path }}"
+    target_origin_id       = aws_s3_bucket.static_storage.id
+    allowed_methods        = ["GET", "HEAD"]
+    cached_methods         = ["GET", "HEAD"]
+    viewer_protocol_policy = "redirect-to-https"
+    cache_policy_id        = data.aws_cloudfront_cache_policy.caching_optimized.id
+  }
+  {% endfor %}
+
   // Cache behavior for /api paths
   ordered_cache_behavior {
     path_pattern             = "/api/*"
