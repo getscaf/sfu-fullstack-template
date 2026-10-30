@@ -282,8 +282,8 @@ def main():
         subprocess.run(shlex.split("make init-frontend-dependencies"), check=True)
 
     # Format code using black and isort (versions should match .pre-commit-config.yaml)
-    subprocess.run(shlex.split("black ./backend"), check=True)
-    subprocess.run(shlex.split("isort --profile=black ./backend"), check=True)
+    subprocess.run(shlex.split("black ./backend ./tasks.py"), check=True)
+    subprocess.run(shlex.split("isort --profile=black ./backend ./tasks.py"), check=True)
 
     init_git_repo()
     configure_git_remote()
