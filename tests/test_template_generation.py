@@ -38,7 +38,7 @@ class TemplateGenerationTests(unittest.TestCase):
                 self.assertEqual((backend / "cms_demo/cms").exists(), wagtail)
                 self.assertEqual((project / "docs/wagtail.md").exists(), wagtail)
                 requirements = (backend / "requirements/base.in").read_text()
-                self.assertEqual("wagtail>=7.4" in requirements, wagtail)
+                self.assertEqual("wagtail" in requirements.splitlines(), wagtail)
                 self.assertEqual(
                     "wagtail-headless-preview" in requirements, nextjs and wagtail
                 )
