@@ -1,4 +1,6 @@
 KUBECTL_EXEC_BACKEND = kubectl exec -it $$(kubectl get pods -l app=backend -o jsonpath="{.items[0].metadata.name}") -- bash
+PYTHON_IMAGE = $(shell awk '/^FROM python:/ {print $$2; exit}' backend/Dockerfile)
+NODE_IMAGE = $(shell awk '/^FROM node:/ {print $$2; exit}' frontend/Dockerfile)
 {% if copier__create_nextjs_frontend %}
 KUBECTL_EXEC_FRONTEND = kubectl exec -it $$(kubectl get pods -l app=frontend -o jsonpath="{.items[0].metadata.name}") -- bash
 {% endif %}
@@ -26,7 +28,7 @@ check-lint-and-formatting: .git/hooks/pre-commit ## Execute check of lint and fo
 {% if copier__create_nextjs_frontend %}
 check-lint-and-test-frontend:  ## Frontend Lint & Typecheck & Test
 	cd frontend && \
-	npm install --legacy-peer-deps && \
+	npm ci && \
 	npm run lint-src && \
 	npm run typecheck && \
 	npm run test
@@ -34,14 +36,16 @@ check-lint-and-test-frontend:  ## Frontend Lint & Typecheck & Test
 
 backend-test: ## Execute backend tests
 ifeq ($(CI),true)
-	pip install uv; \
+	set -e; \
+	pip install --no-deps -r backend/requirements/build.txt; \
 	cd backend; \
 	uv venv ./venv; \
 	. ./venv/bin/activate; \
-	uv pip install \
+	uv pip install --no-deps -r requirements/build.txt; \
+	uv pip install --no-deps --no-build-isolation \
 		-r requirements/production.txt \
 		-r requirements/tests.txt; \
-	cd scafman; \
+	cd {{ copier__project_slug }}; \
 	export DJANGO_SECRET_KEY="test"; \
 	pytest --cov=./ --cov-report html --ds=config.settings.test
 else
@@ -64,10 +68,6 @@ test: backend-test  ## Run all tests
 {% endif %}
 
 ## Development Targets
-
-backend/requirements/local.txt: compile
-backend/requirements/production.txt: compile
-backend/requirements/tests.txt: compile
 
 setup:
 	cp -n .envrc.example .envrc; \
@@ -105,22 +105,22 @@ outdated: ## Show all the outdated packages with their latest versions in the co
 pipdeptree: ## Show the dependencies of installed packages as a tree structure
 	$(KUBECTL_EXEC_BACKEND) -c "uv pip tree --no-cache"
 
-compile: backend/requirements/base.in backend/requirements/tests.in ## compile latest requirements to be built into the docker image
-	@docker run --rm -v $(shell pwd)/backend/requirements:/local python:3.13-slim /bin/bash -c \
+compile: ## explicitly refresh all Python dependency locks
+	@docker run --rm -v $(shell pwd)/backend/requirements:/local $(PYTHON_IMAGE) /bin/bash -ec \
 		"apt-get update; apt-get install -y libpq-dev; \
-		 pip install uv; \
-		 touch /local/base.txt; touch /local/production.txt; touch /local/tests.txt; touch /local/local.txt; \
+		 pip install --no-deps -r /local/build.txt; \
+		 uv pip compile --upgrade --output-file /local/build.txt /local/build.in; \
 		 uv pip compile --upgrade --generate-hashes --output-file /local/base.txt /local/base.in; \
-		 uv pip compile --upgrade --generate-hashes --output-file /local/production.txt /local/production.in; \
-		 uv pip compile --upgrade --generate-hashes --output-file /local/tests.txt /local/tests.in; \
-		 uv pip compile --upgrade --output-file /local/local.txt /local/local.in"
+		 uv pip compile --upgrade --constraint /local/base.txt --generate-hashes --output-file /local/production.txt /local/production.in; \
+		 uv pip compile --upgrade --constraint /local/base.txt --generate-hashes --output-file /local/tests.txt /local/tests.in; \
+		 uv pip compile --upgrade --constraint /local/base.txt --output-file /local/local.txt /local/local.in"
 
 compile-frontend: frontend/package.json ## compile latest frontend dependencies to be built into the docker image
-	@docker run --rm --user node -w "/app" -v $(shell pwd)/frontend:/app node:__NODE_LTS_VERSION__ /bin/bash -c "npm install"
+	@docker run --rm --user node -w "/app" -v $(shell pwd)/frontend:/app $(NODE_IMAGE) /bin/bash -c "npm update --package-lock-only --ignore-scripts"
 
-init-frontend-dependencies: ## compile initial frontend dependencies to be built into the docker image
-	@docker run --rm --user $(shell id -u):$(shell id -g) -w "/app" -v $(shell pwd)/frontend:/app -e npm_config_cache=/tmp/.npm node:__NODE_LTS_VERSION__ /bin/bash -c \
-		"xargs -n 5 npm install"
+init-frontend-dependencies: ## install the committed frontend dependency lock
+	@docker run --rm --user $(shell id -u):$(shell id -g) -w "/app" -v $(shell pwd)/frontend:/app -e npm_config_cache=/tmp/.npm $(NODE_IMAGE) /bin/bash -c \
+		"npm ci"
 
 shell-backend:  ## Shell into the running Django container
 	$(KUBECTL_EXEC_BACKEND)

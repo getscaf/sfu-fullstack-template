@@ -11,7 +11,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: '.python-version'
       - name: Check lint and formatting
         run: make check-lint-and-formatting
 {% if copier__create_nextjs_frontend %}
@@ -19,9 +21,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
-          node-version: '__NODE_LTS_VERSION__'
+          node-version-file: '.node-version'
       - name: Frontend Lint & Typecheck & Test
         run: make check-lint-and-test-frontend
 {% endif %}
@@ -56,9 +58,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version-file: '.python-version'
       - name: Run backend tests
         run: CI=true make backend-test
         env:

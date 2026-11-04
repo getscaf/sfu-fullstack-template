@@ -241,9 +241,7 @@ def run_setup():
     subprocess.run(
         shlex.split("kind create cluster --name {{ copier__project_dash }}"), check=True
     )
-    subprocess.run(shlex.split("make compile"), check=True)
-
-    print("Dependencies compiled successfully.")
+    print("Using the template's committed dependency pins.")
     print("Performing initial commit.")
 
     subprocess.run(shlex.split("git add ."), check=True)

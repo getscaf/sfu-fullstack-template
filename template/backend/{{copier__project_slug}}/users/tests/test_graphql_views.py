@@ -28,7 +28,7 @@ class TestGraphQLView:
                 }
             }
             """,
-            asserts_errors=False,
+            assert_no_errors=False,
         )
         assert not res.data
         assert res.errors[0]["message"] == "User is not logged in."

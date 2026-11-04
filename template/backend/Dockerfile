@@ -1,5 +1,5 @@
 # Build all of the dependencies then we will build the actual application image
-FROM python:3.13-slim AS build
+FROM python:3.13.16-slim-bookworm AS build
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -34,27 +34,25 @@ RUN set -x \
 ENV VIRTUAL_ENV="/app"
 ENV PATH="$VIRTUAL_ENV/bin:${PATH}"
 
-# Next, we want to update pip, setuptools, and wheel inside of this virtual
-# environment to ensure that we have the latest versions of them.
-RUN pip --no-cache-dir install --upgrade uv
-RUN uv pip --no-cache install --upgrade setuptools wheel
-
 COPY requirements /tmp/requirements
 
-RUN set -x \
-    && if [ "$DEVEL" = "yes" ]; then uv pip --no-cache install -r /tmp/requirements/local.txt; fi
+# Install the committed build-tool pins before the application dependencies.
+RUN pip --no-cache-dir install --no-deps -r /tmp/requirements/build.txt
 
 RUN set -x \
-    && uv pip --no-cache install --no-deps \
+    && if [ "$DEVEL" = "yes" ]; then uv pip --no-cache install --no-deps --no-build-isolation -r /tmp/requirements/local.txt; fi
+
+RUN set -x \
+    && uv pip --no-cache install --no-deps --no-build-isolation \
     -r /tmp/requirements/production.txt \
     -r /tmp/requirements/base.txt
 
 RUN set -x \
-    && if [ "$TEST" = "yes" ]; then uv pip --no-cache install --no-deps \
+    && if [ "$TEST" = "yes" ]; then uv pip --no-cache install --no-deps --no-build-isolation \
     -r /tmp/requirements/tests.txt; fi
 
 # Now we can build the application image
-FROM python:3.13-slim
+FROM python:3.13.16-slim-bookworm
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH="/app"

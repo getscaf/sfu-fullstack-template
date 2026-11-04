@@ -47,7 +47,7 @@
             kubectl
             kubernetes-helm
             kubeseal
-            nodejs___NODE_LTS_VERSION__
+            nodejs_24
             eslint
             prettier
             openssh

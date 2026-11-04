@@ -2,15 +2,33 @@ name: Test template
 
 on:
   pull_request:
+  merge_group:
+    types: [checks_requested]
   schedule:
     # Run daily at 2 AM UTC
     - cron: '0 2 * * *'
   workflow_dispatch: # Allow manual triggering
 
+permissions:
+  contents: read
+
 jobs:
   test-template:
     runs-on: ubuntu-latest
     environment: dev
+    timeout-minutes: 90
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: template-test
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 15432:5432
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,9 +44,14 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 'lts/*'
+          node-version-file: 'template/.node-version'
           cache: 'npm'
           cache-dependency-path: 'template/frontend/package*.json'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: 'template/.python-version'
 
       - name: Install kind
         shell: bash
@@ -40,7 +63,7 @@ jobs:
       - name: Install Python dependencies
         shell: bash
         run: |
-          pip install copier black isort
+          pip install -r .github/requirements.txt
 
       - name: Configure Git
         shell: bash
@@ -50,15 +73,12 @@ jobs:
 
       - name: Test Template
         shell: bash
-        env:
-          VCS_REF: ${{ github.head_ref || github.ref_name || github.sha }}
         run: |
-          echo "Installing template from ${VCS_REF}"
           copier copy \
           --trust \
           --defaults \
-          --vcs-ref=${VCS_REF} \
-          https://github.com/sixfeetup/scaf-fullstack-template.git test-project
+          --vcs-ref=HEAD \
+          . test-project
 
       - name: Run lint and formatting checks
         shell: bash
@@ -72,6 +92,15 @@ jobs:
           cd test-project
           make check-lint-and-test-frontend
 
+      - name: Run backend tests
+        env:
+          DATABASE_URL: postgresql://postgres:template-test@localhost:15432/postgres
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev
+          cd test-project
+          CI=true make backend-test
+
       - name: Install Tilt
         shell: bash
         run: |
@@ -84,28 +113,6 @@ jobs:
           set -euo pipefail
           cd test-project
           tilt ci
-
-      - name: Notify Slack on Success
-        if: success() && github.event_name == 'schedule'
-        uses: slackapi/slack-github-action@v2.1.1
-        with:
-          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
-          webhook-type: incoming-webhook
-          payload: |
-            text: "Daily template test completed successfully! ✅"
-            blocks:
-              - type: "section"
-                text:
-                  type: "mrkdwn"
-                  text: "Daily template test completed successfully! ✅"
-              - type: "section"
-                fields:
-                  - type: "mrkdwn"
-                    text: "*Repository*: ${{ github.repository }}"
-                  - type: "mrkdwn"
-                    text: >
-                      *Run Details*:
-                      <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Logs>
 
       - name: Notify Slack on Failure
         if: failure() && github.event_name == 'schedule'
