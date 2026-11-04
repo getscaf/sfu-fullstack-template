@@ -15,8 +15,6 @@ django-environ
 django-model-utils
 django-redis
 Pillow
-# boto3 requires dateutil < 3; keep the base lock compatible with production S3.
-python-dateutil<3
 urllib3
 {% if copier__use_sentry %}
 sentry-sdk[django]

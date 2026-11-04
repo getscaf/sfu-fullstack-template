@@ -2,10 +2,15 @@ name: Test template
 
 on:
   pull_request:
+  merge_group:
+    types: [checks_requested]
   schedule:
     # Run daily at 2 AM UTC
     - cron: '0 2 * * *'
   workflow_dispatch: # Allow manual triggering
+
+permissions:
+  contents: read
 
 jobs:
   generation:
@@ -14,9 +19,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
-      - run: pip install copier
-      - run: python -m unittest tests.test_template_generation tests.test_node_version_hook
+          python-version-file: 'template/.python-version'
+      - run: pip install -r .github/requirements.txt
+      - run: python -m unittest tests.test_template_generation
 
   storage-variants:
     runs-on: ubuntu-latest
@@ -29,8 +34,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
-      - run: pip install copier
+          python-version-file: 'template/.python-version'
+      - run: pip install -r .github/requirements.txt
       - name: Generate a project for the selected mail service
         env:
           SCAF_MAIL_SERVICE: ${{ matrix.mail-service }}
@@ -44,8 +49,10 @@ jobs:
         working-directory: storage-project/backend
         run: |
           # This focused import test does not require a full Docker/cluster setup.
-          cp requirements/base.in requirements/base.txt
-          pip install -r requirements/production.in
+          sudo apt-get update
+          sudo apt-get install -y build-essential libpq-dev
+          pip install --no-deps -r requirements/build.txt
+          pip install --no-deps --no-build-isolation -r requirements/production.txt
       - name: Test real production storage settings in isolation
         working-directory: storage-project/backend
         env:
@@ -53,15 +60,28 @@ jobs:
           DATABASE_URL: 'sqlite:///:memory:'
         run: python -m django test cms_demo.utils.tests.test_storage --settings=config.settings.test
 
-  test-template:
+  test-template-variants:
     runs-on: ubuntu-latest
     environment: dev
+    timeout-minutes: 90
     needs: generation
     strategy:
       fail-fast: false
       matrix:
         nextjs: [true, false]
         wagtail: [true, false]
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: template-test
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 15432:5432
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -71,19 +91,20 @@ jobs:
       - name: Free Disk Space (Ubuntu)
         uses: jlumbroso/free-disk-space@main
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 'lts/*'
+          node-version-file: 'template/.node-version'
           cache: 'npm'
           cache-dependency-path: 'template/frontend/package*.json'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: 'template/.python-version'
 
       - name: Install kind
         shell: bash
@@ -95,7 +116,7 @@ jobs:
       - name: Install Python dependencies
         shell: bash
         run: |
-          pip install copier black isort
+          pip install -r .github/requirements.txt
 
       - name: Configure Git
         shell: bash
@@ -127,6 +148,15 @@ jobs:
           cd test-project
           make check-lint-and-test-frontend
 
+      - name: Run backend tests
+        env:
+          DATABASE_URL: postgresql://postgres:template-test@localhost:15432/postgres
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpq-dev
+          cd test-project
+          CI=true make backend-test
+
       - name: Install Tilt
         shell: bash
         run: |
@@ -140,48 +170,28 @@ jobs:
           cd test-project
           tilt ci
 
-      - name: Run generated backend tests
-        shell: bash
-        run: |
-          cd test-project
-          SCAF_TEST_SLUG=$(python -c 'import yaml; print(yaml.safe_load(open(".copier-answers.yml"))["copier__project_slug"])')
-          SCAF_TEST_NAMESPACE=$(kubectl get deployments --all-namespaces -l app=backend -o jsonpath='{.items[0].metadata.namespace}')
-          # The dev server, pytest and the isolated production-settings subprocess
-          # share this container's memory limit. Increase it only for the CI tests.
-          kubectl -n "$SCAF_TEST_NAMESPACE" set resources deployment/backend -c backend --limits=memory=1Gi
-          kubectl -n "$SCAF_TEST_NAMESPACE" rollout status deployment/backend --timeout=180s
-          kubectl -n "$SCAF_TEST_NAMESPACE" exec deployment/backend -c backend -- \
-            python -m pytest "$SCAF_TEST_SLUG" --ds=config.settings.test
-
-  notify:
+  # Keep one stable required check for branch protection and the nightly updater.
+  test-template:
     runs-on: ubuntu-latest
-    needs: [generation, storage-variants, test-template]
-    if: always() && github.event_name == 'schedule'
+    environment: dev
+    needs: [generation, storage-variants, test-template-variants]
+    if: always()
     steps:
-      - name: Notify Slack on Success
-        if: needs.generation.result == 'success' && needs.storage-variants.result == 'success' && needs.test-template.result == 'success'
-        uses: slackapi/slack-github-action@v2.1.1
-        with:
-          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
-          webhook-type: incoming-webhook
-          payload: |
-            text: "Daily template test completed successfully! ✅"
-            blocks:
-              - type: "section"
-                text:
-                  type: "mrkdwn"
-                  text: "Daily template test completed successfully! ✅"
-              - type: "section"
-                fields:
-                  - type: "mrkdwn"
-                    text: "*Repository*: ${{ github.repository }}"
-                  - type: "mrkdwn"
-                    text: >
-                      *Run Details*:
-                      <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Logs>
+      - name: Require all template checks to pass
+        env:
+          TEMPLATE_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python - <<'PYTHON'
+          import json
+          import os
+          results = json.loads(os.environ["TEMPLATE_RESULTS"])
+          failures = {name: job["result"] for name, job in results.items() if job["result"] != "success"}
+          if failures:
+              raise SystemExit(f"Template checks did not pass: {failures}")
+          PYTHON
 
       - name: Notify Slack on Failure
-        if: needs.generation.result != 'success' || needs.storage-variants.result != 'success' || needs.test-template.result != 'success'
+        if: failure() && github.event_name == 'schedule'
         uses: slackapi/slack-github-action@v2.1.1
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_URL }}

@@ -17,6 +17,7 @@ OPTIONS = {
     "copier__use_celery": (False, True),
     "copier__use_sentry": (False, True),
     "copier__create_nextjs_frontend": (False, True),
+    "copier__use_wagtail": (False, True),
     "copier__mail_service": ("Amazon SES", "Mailgun", "Other SMTP"),
 }
 ENV = Environment(undefined=StrictUndefined, keep_trailing_newline=True)

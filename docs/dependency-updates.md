@@ -32,10 +32,10 @@ Prereleases are excluded from Python and runtime resolution.
 The Python updater combines the rendered source declarations into one shared
 compatible version set, then generates a complete lock for each requirement
 role. Common pins and conditional optional packages are factored into the five
-Copier `.txt` templates. Celery, Sentry, frontend, and mail-provider choices
-therefore retain their optional dependencies and transitive requirements. The
-24 configurations are a generation and validation technique for this shared
-set, rather than 24 separately maintained product version sets.
+Copier `.txt` templates. Celery, Sentry, frontend, Wagtail, and mail-provider
+choices therefore retain their optional dependencies and transitive
+requirements. The 48 configurations are a generation and validation technique
+for this shared set, rather than 48 separately maintained product version sets.
 
 `build.txt` pins installation and source-distribution build tools, including
 pip, setuptools, wheel, and uv. Application installs use `--no-deps` and
@@ -150,7 +150,7 @@ python .github/scripts/python_locks.py --check
 
 The checker re-resolves declarations for the pinned Python on Linux against
 the committed shared pins. It checks complete transitive dependencies,
-consistent versions, extras, and source/lock agreement across all 24
+consistent versions, extras, and source/lock agreement across all 48
 configurations without writing new locks.
 
 Render a representative project with Copier and run its existing formatting,

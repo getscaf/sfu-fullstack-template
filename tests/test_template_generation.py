@@ -43,6 +43,19 @@ class TemplateGenerationTests(unittest.TestCase):
                     "wagtail-headless-preview" in requirements, nextjs and wagtail
                 )
                 self.assertEqual("strawberry-graphql-django" in requirements, nextjs)
+                for role in ("base", "local", "production", "tests"):
+                    lock = (backend / f"requirements/{role}.txt").read_text()
+                    self.assertEqual(
+                        any(line.startswith("wagtail==") for line in lock.splitlines()),
+                        wagtail,
+                    )
+                    self.assertEqual(
+                        any(
+                            line.startswith("wagtail-headless-preview==")
+                            for line in lock.splitlines()
+                        ),
+                        wagtail and nextjs,
+                    )
                 self.assertEqual((backend / "config/schema.py").exists(), nextjs)
                 for path in backend.rglob("*.py"):
                     ast.parse(path.read_text(), filename=str(path))
@@ -69,11 +82,12 @@ class TemplateGenerationTests(unittest.TestCase):
                     self.assertEqual(
                         (project / "frontend/pages/cms-preview.tsx").exists(), wagtail
                     )
-                    # Node pinning is a setup hook, deliberately skipped in this suite.
+                    node_version = (project / ".node-version").read_text().strip()
                     self.assertIn(
-                        "__NODE_LTS_VERSION__",
+                        f"node:{node_version}-bookworm",
                         (project / "frontend/Dockerfile").read_text(),
                     )
+                    self.assertTrue((project / "frontend/package-lock.json").is_file())
 
     def test_cloud_access_boundaries(self):
         for (nextjs, wagtail), project in self.projects.items():
@@ -185,13 +199,15 @@ class TemplateGenerationTests(unittest.TestCase):
                     )
                     self.assertEqual(
                         migration["command"],
-                        [
-                            "sh",
-                            "-c",
-                            "python manage.py migrate && python manage.py initialize_cms",
-                        ]
-                        if wagtail
-                        else ["python", "manage.py", "migrate"],
+                        (
+                            [
+                                "sh",
+                                "-c",
+                                "python manage.py migrate && python manage.py initialize_cms",
+                            ]
+                            if wagtail
+                            else ["python", "manage.py", "migrate"]
+                        ),
                     )
                     collection = next(
                         container

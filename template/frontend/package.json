@@ -41,7 +41,7 @@
     "@types/react": "*",
     "@types/react-dom": "*",
     "@vitejs/plugin-react": "*",
-    "eslint": "^9.0.0",
+    "eslint": "*",
     "eslint-config-next": "*",
     "eslint-plugin-import": "*",
     "eslint-plugin-jsx-a11y": "*",
@@ -53,7 +53,7 @@
     "prettier": "*",
     "prettier-plugin-tailwindcss": "*",
     "tailwindcss": "*",
-    "typescript": "^6.0.0",
+    "typescript": "*",
     "typescript-eslint": "*",
     "vite": "*",
     "vitest": "*"
