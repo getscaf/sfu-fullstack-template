@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.17.0](https://github.com/getscaf/sfu-fullstack-template/compare/v1.16.1...v1.17.0) (2026-11-04)
+
+### Features
+
+* ci for pinning ([#198](https://github.com/getscaf/sfu-fullstack-template/issues/198)) ([d2d3e52](https://github.com/getscaf/sfu-fullstack-template/commit/d2d3e5246ce50d0e038177b3e887d83eff66b85f))
+
 ## [1.16.1](https://github.com/getscaf/sfu-fullstack-template/compare/v1.16.0...v1.16.1) (2026-10-01)
 
 ### Bug Fixes
