@@ -22,8 +22,37 @@ data "external" "oidc_provider_exists" {
   program = ["bash", "${path.module}/check_oidc_provider.sh"]
 }
 
+data "external" "github_repository" {
+  program = [
+    "gh", "api", "--hostname", "github.com",
+    "repos/{{ copier__source_control_organization_slug }}/{{ copier__repo_name }}",
+    "--jq", "{owner: .owner.login, owner_id: (.owner.id | tostring), name: .name, repository_id: (.id | tostring)}"
+  ]
+
+  lifecycle {
+    postcondition {
+      condition     = lower("${self.result.owner}/${self.result.name}") == lower("{{ copier__source_control_organization_slug }}/{{ copier__repo_name }}")
+      error_message = "GitHub repository lookup must match the configured owner/repository. Update the configuration after a rename or transfer."
+    }
+    postcondition {
+      condition = alltrue([
+        can(regex("^[1-9][0-9]*$", self.result.owner_id)),
+        can(regex("^[1-9][0-9]*$", self.result.repository_id)),
+      ])
+      error_message = "GitHub repository metadata must include numeric owner and repository IDs."
+    }
+  }
+}
+
 locals {
   oidc_provider_exists = data.external.oidc_provider_exists.result.exists == "true"
+  github_repository    = data.external.github_repository.result
+
+  # Existing repositories may use name-only subjects; new repositories include IDs.
+  github_oidc_subjects = [
+    "repo:${local.github_repository.owner}/${local.github_repository.name}:*",
+    "repo:${local.github_repository.owner}@${local.github_repository.owner_id}/${local.github_repository.name}@${local.github_repository.repository_id}:*",
+  ]
 }
 
 resource "aws_iam_openid_connect_provider" "github" {
@@ -67,7 +96,7 @@ resource "aws_iam_role" "github_oidc_role" {
       "Action": "sts:AssumeRoleWithWebIdentity",
       "Condition": {
         "StringLike": {
-          "token.actions.githubusercontent.com:sub": "repo:{{ copier__source_control_organization_slug }}/{{ copier__repo_name }}:*"
+          "token.actions.githubusercontent.com:sub": ${jsonencode(local.github_oidc_subjects)}
         },
         "StringEquals": {
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com"

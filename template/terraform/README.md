@@ -43,6 +43,13 @@ output = json
 Note the `sso_role_name` setting above. Make sure to use a role that provides
 you with the necessary permissions to deploy infrastructure on your AWS account.
 
+The GitHub repository must already exist. Authenticate the GitHub CLI with an
+account that can access it (`gh auth login`). The GitHub Terraform configuration
+uses `gh api` to read its canonical name and owner/repository IDs. Its OIDC trust
+policy accepts both the legacy name-only subject and the immutable subject for
+that repository, retaining exact IDs rather than wildcarding them. See
+[GitHub's subject format documentation](https://docs.github.com/en/actions/reference/security/oidc#immutable-subject-claims).
+
 Export the `AWS_PROFILE` environment variable:
 
 ```
