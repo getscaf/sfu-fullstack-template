@@ -41,6 +41,8 @@ resource "aws_route53_record" "nextjs" {
   ttl     = 600
 }
 
+{% endif %}
+
 resource "aws_route53_record" "frontend" {
   zone_id = local.zone_id
   name    = var.domain_name
@@ -64,7 +66,6 @@ resource "aws_route53_record" "frontend-v6" {
     evaluate_target_health = false
   }
 }
-{% endif %}
 
 # record for argocd call
 resource "aws_route53_record" "argocd" {

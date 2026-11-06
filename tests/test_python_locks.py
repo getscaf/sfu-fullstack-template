@@ -16,6 +16,11 @@ INPUTS = {
 {% if copier__use_celery %}celery{% endif %}
 {% if copier__use_sentry %}sentry-sdk[django]{% endif %}
 {% if copier__create_nextjs_frontend %}strawberry-graphql-django{% endif %}
+{% if copier__use_wagtail %}
+wagtail
+nh3
+{% if copier__create_nextjs_frontend %}wagtail-headless-preview{% endif %}
+{% endif %}
 """,
     "local": "-r base.txt\ndebugpy\n",
     "production": """-r base.txt
@@ -29,6 +34,14 @@ gunicorn
 }
 RESOLUTIONS = {
     "django": {"django==5.2.1", "asgiref==3.8.1"},
+    "wagtail": {"wagtail==7.4.4", "django==5.2.1", "beautifulsoup4==4.14.3"},
+    "nh3": {"nh3==0.3.2"},
+    "wagtail-headless-preview": {
+        "wagtail-headless-preview==0.9.0",
+        "wagtail==7.4.4",
+        "django==5.2.1",
+        "beautifulsoup4==4.14.3",
+    },
     "celery": {"celery==5.5.1", "kombu==5.5.0"},
     "sentry-sdk[django]": {"sentry-sdk[django]==2.0", "urllib3==2.4.0"},
     "strawberry-graphql-django": {
@@ -113,7 +126,7 @@ class PythonLockTests(unittest.TestCase):
                     if line and not line.startswith("#")
                 }
                 self.assertEqual(actual, expected)
-        self.assertEqual(len(variants), 24)
+        self.assertEqual(len(variants), 48)
         self.assertEqual(template.count("django==5.2.1"), 1)
 
     def test_empty_variants_do_not_produce_a_lock(self):
@@ -344,7 +357,7 @@ class PythonLockWorkflowTests(unittest.TestCase):
             self.assertFalse(strip_extras)
             self.assertIsNotNone(constraint)
 
-    def test_generated_locks_roundtrip_for_all_roles_and_24_configurations(self):
+    def test_generated_locks_roundtrip_for_all_roles_and_48_configurations(self):
         with patch.object(locks, "compile_lock", side_effect=resolve_fixture):
             locks.update_locks(self.root)
         workdir = self.root / "verify"
@@ -368,7 +381,7 @@ class PythonLockWorkflowTests(unittest.TestCase):
                     all_lines.update(actual)
         # A shared package has one pin, including when extras differ by variant.
         locks.pinned_versions(all_lines)
-        self.assertEqual(len(locks.contexts()), 24)
+        self.assertEqual(len(locks.contexts()), 48)
 
     def test_repeated_updates_are_byte_identical(self):
         original = self.lock_contents()

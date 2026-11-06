@@ -46,6 +46,11 @@
             <li class="nav-item">
               <a class="nav-link" href="{% url 'about' %}">About</a>
             </li>
+{% endraw %}{% if copier__use_wagtail %}{% raw %}
+            <li class="nav-item">
+              <a class="nav-link" href="/content/">Content</a>
+            </li>
+{% endraw %}{% endif %}{% raw %}
             {% if request.user.is_authenticated %}
               <li class="nav-item">
                 {# URL provided by django-allauth/account/urls.py #}

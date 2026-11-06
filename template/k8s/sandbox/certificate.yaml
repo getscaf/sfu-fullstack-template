@@ -10,4 +10,6 @@ spec:
   dnsNames:
     - api.sandbox.{{ copier__domain_name }}
     - k8s.sandbox.{{ copier__domain_name }}
-    - nextjs.{{ copier__domain_name }}
+{% if copier__create_nextjs_frontend %}
+    - nextjs.sandbox.{{ copier__domain_name }}
+{% endif %}

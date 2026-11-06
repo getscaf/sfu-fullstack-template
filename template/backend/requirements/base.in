@@ -2,6 +2,13 @@ argon2-cffi
 crispy-bootstrap5
 daphne
 django
+{% if copier__use_wagtail %}
+wagtail
+nh3
+{% if copier__create_nextjs_frontend %}
+wagtail-headless-preview
+{% endif %}
+{% endif %}
 django-allauth
 django-crispy-forms
 django-environ

@@ -58,6 +58,11 @@ class TemplateBootstrapTests(unittest.TestCase):
                     "copier__create_nextjs_frontend": False,
                 },
             ]
+            variants = [
+                {**options, "copier__use_wagtail": wagtail}
+                for options in variants
+                for wagtail in (False, True)
+            ]
             for i, options in enumerate(variants):
                 with self.subTest(options=options):
                     project = work / str(i)
@@ -122,6 +127,10 @@ class TemplateBootstrapTests(unittest.TestCase):
                     self.assertEqual(
                         (project / "backend/config/schema.py").exists(),
                         options["copier__create_nextjs_frontend"],
+                    )
+                    self.assertEqual(
+                        (project / "backend/pin_audit/cms").exists(),
+                        options["copier__use_wagtail"],
                     )
                     if options["copier__create_nextjs_frontend"]:
                         self.assertEqual(

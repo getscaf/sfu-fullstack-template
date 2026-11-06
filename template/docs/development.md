@@ -42,6 +42,12 @@ were errors during the first run, stop all the containers using Ctrl-C, and then
 You are now ready to edit the code.
 The app will be automatically reloaded when its files change.
 
+{% if copier__use_wagtail %}
+Wagtail's editor is at `http://localhost:8000/cms/` and content is at
+`http://localhost:{{ '3000' if copier__create_nextjs_frontend else '8000' }}/content/`.
+See [Wagtail CMS](wagtail.md) for administrator setup and the publish/preview workflow.
+{% endif %}
+
 To delete resources created by Tilt once you are done working:
 
        $ tilt down

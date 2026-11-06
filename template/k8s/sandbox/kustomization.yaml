@@ -11,6 +11,27 @@ resources:
 
 patches:
 - patch: |-
+    - op: add
+      path: /spec/template/spec/initContainers/-
+      value:
+        name: backend-collectstatic
+        image: backend:latest
+        command: ["python", "manage.py", "collectstatic", "--noinput"]
+        envFrom:
+          - configMapRef:
+              name: app-config
+          - secretRef:
+              name: secrets-config
+        env:
+          - name: DATABASE_URL
+            valueFrom:
+              secretKeyRef:
+                name: postgres-app
+                key: uri
+  target:
+    kind: Deployment
+    name: backend
+- patch: |-
     - op: replace
       path: /spec/template/spec/containers/0/command
       value: ["daphne"]
@@ -148,10 +169,17 @@ configMapGenerator:
     literals:
      - ENVIRONMENT="sandbox"
      - DJANGO_SETTINGS_MODULE="config.settings.production"
-     - DJANGO_CSRF_TRUSTED_ORIGINS="https://sandbox.{{ copier__domain_name }}"
-     - CORS_ALLOWED_ORIGINS="https://nextjs.{{ copier__domain_name }},https://sandbox.{{ copier__domain_name }}"
+     - DJANGO_AWS_STORAGE_BUCKET_NAME="{{ copier__project_dash }}-sandbox-static-storage"
+     - DJANGO_CSRF_TRUSTED_ORIGINS="https://api.sandbox.{{ copier__domain_name }}{% if copier__create_nextjs_frontend %},https://sandbox.{{ copier__domain_name }},https://nextjs.sandbox.{{ copier__domain_name }}{% endif %}"
+{% if copier__create_nextjs_frontend %}
+     - CORS_ALLOWED_ORIGINS="https://sandbox.{{ copier__domain_name }},https://nextjs.sandbox.{{ copier__domain_name }}"
      - CORS_ALLOW_CREDENTIALS=True
+{% endif %}
      - AWS_S3_CUSTOM_DOMAIN="sandbox.{{ copier__domain_name }}"
+{% if copier__use_wagtail %}
+     - CMS_BACKEND_BASE_URL="https://api.sandbox.{{ copier__domain_name }}"
+     - CMS_PUBLIC_BASE_URL="https://{% if not copier__create_nextjs_frontend %}api.{% endif %}sandbox.{{ copier__domain_name }}"
+{% endif %}
 
 images:
   - name: backend

@@ -11,6 +11,7 @@ manifests in three Kustomize layers for dev, sandbox, and production. A new
 project contains the following:
 
 - Django backend
+- Wagtail CMS (optional): headless with Next.js, or rendered by Django without it
 - Celery (optional)
 - Next.js frontend (optional)
   - Strawberry GraphQL (if frontend is chosen)

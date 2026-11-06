@@ -137,6 +137,11 @@ copier__create_nextjs_frontend:
   default: true
   help: "Do you want to create a Next.js frontend? (y/n) [default: Yes]"
 
+copier__use_wagtail:
+  type: bool
+  default: false
+  help: "Do you want Wagtail CMS? Uses Next.js when selected, or Django templates otherwise."
+
 copier__mail_service:
   type: str
   default: "Amazon SES"
