@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.17.2](https://github.com/getscaf/sfu-fullstack-template/compare/v1.17.1...v1.17.2) (2026-11-06)
+
+### Bug Fixes
+
+* support immutable GitHub OIDC subjects ([#203](https://github.com/getscaf/sfu-fullstack-template/issues/203)) ([4725db4](https://github.com/getscaf/sfu-fullstack-template/commit/4725db49ac9a7fe364b70211919876dc3af80c31))
+
 ## [1.17.1](https://github.com/getscaf/sfu-fullstack-template/compare/v1.17.0...v1.17.1) (2026-11-06)
 
 ### Bug Fixes
