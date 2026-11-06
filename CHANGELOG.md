@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.17.1](https://github.com/getscaf/sfu-fullstack-template/compare/v1.17.0...v1.17.1) (2026-11-06)
+
+### Bug Fixes
+
+* update Sealed Secrets Helm repository URL ([#202](https://github.com/getscaf/sfu-fullstack-template/issues/202)) ([b06e479](https://github.com/getscaf/sfu-fullstack-template/commit/b06e479bb1b158802b7d81d880010ec8a6c04226))
+
 ## [1.17.0](https://github.com/getscaf/sfu-fullstack-template/compare/v1.16.1...v1.17.0) (2026-11-04)
 
 ### Features
