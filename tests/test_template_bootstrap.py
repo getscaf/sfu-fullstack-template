@@ -4,8 +4,6 @@ import contextlib
 import io
 import json
 import runpy
-import shutil
-import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,7 +11,7 @@ from unittest.mock import patch
 
 from copier import run_copy
 
-ROOT = Path(__file__).resolve().parents[1]
+from tests.template_source import export_template_source
 
 
 class TemplateBootstrapTests(unittest.TestCase):
@@ -21,26 +19,7 @@ class TemplateBootstrapTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             work = Path(directory)
             source = work / "source"
-            source.mkdir()
-            names = subprocess.check_output(
-                [
-                    "git",
-                    "ls-files",
-                    "-co",
-                    "--exclude-standard",
-                    "-z",
-                    "--",
-                    "copier.yml",
-                    "template",
-                ],
-                cwd=ROOT,
-                text=True,
-            ).split("\0")
-            for name in set(names):
-                if name and (ROOT / name).is_file():
-                    target = source / name
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copyfile(ROOT / name, target)
+            export_template_source(source)
             variants = [
                 {
                     "copier__use_celery": False,
@@ -57,6 +36,11 @@ class TemplateBootstrapTests(unittest.TestCase):
                     "copier__use_sentry": False,
                     "copier__create_nextjs_frontend": False,
                 },
+            ]
+            variants = [
+                {**options, "copier__use_wagtail": wagtail}
+                for options in variants
+                for wagtail in (False, True)
             ]
             for i, options in enumerate(variants):
                 with self.subTest(options=options):
@@ -122,6 +106,10 @@ class TemplateBootstrapTests(unittest.TestCase):
                     self.assertEqual(
                         (project / "backend/config/schema.py").exists(),
                         options["copier__create_nextjs_frontend"],
+                    )
+                    self.assertEqual(
+                        (project / "backend/pin_audit/cms").exists(),
+                        options["copier__use_wagtail"],
                     )
                     if options["copier__create_nextjs_frontend"]:
                         self.assertEqual(

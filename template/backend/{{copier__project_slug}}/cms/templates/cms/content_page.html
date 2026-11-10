@@ -1,0 +1,30 @@
+{% raw %}{% extends "base.html" %}
+{% load wagtailcore_tags wagtailimages_tags %}
+
+{% block css %}
+{{ block.super }}
+<style>.cms-body img { max-width: 100%; height: auto; }</style>
+{% endblock %}
+
+{% block title %}{{ page.title }}{% endblock %}
+
+{% block content %}
+<article>
+  <h1>{{ page.title }}</h1>
+  {% if page.intro %}<p>{{ page.intro }}</p>{% endif %}
+  {% if page.hero_image %}
+    {% image page.hero_image fill-1200x600 as hero %}
+    <img class="img-fluid" src="{{ hero.url }}" width="{{ hero.width }}" height="{{ hero.height }}" alt="{{ hero.alt }}">
+  {% endif %}
+  <div class="cms-body">{{ page.display_body }}</div>
+</article>
+{% if content_children %}
+<nav aria-label="Content pages">
+  <ul>
+    {% for child in content_children %}
+      <li><a href="{% pageurl child %}">{{ child.title }}</a></li>
+    {% endfor %}
+  </ul>
+</nav>
+{% endif %}
+{% endblock %}{% endraw %}

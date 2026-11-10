@@ -10,6 +10,12 @@
 
 See [docs/development.md](/docs/development.md)
 
+{% if copier__use_wagtail %}
+## Wagtail CMS
+
+See [docs/wagtail.md](/docs/wagtail.md) for editor access, publishing, preview and extending content models.
+{% endif %}
+
 ## :package: How to deploy
 
 See [docs/deployment.md](/docs/deployment.md)

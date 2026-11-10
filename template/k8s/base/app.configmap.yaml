@@ -23,9 +23,15 @@ data:
   FLOWER_BROKER_URL: "redis://redis:6379/0"
   FLOWER_ADDRESS: "0.0.0.0"
   FLOWER_PORT: "5555"{%- endif %}
+{% if copier__use_wagtail %}
+  CMS_PUBLIC_BASE_URL: "http://localhost:{% if copier__create_nextjs_frontend %}3000{% else %}8000{% endif %}"
+  CMS_BACKEND_BASE_URL: "http://localhost:8000"
+{% if copier__create_nextjs_frontend %}
+  CMS_INTERNAL_BASE_URL: "http://backend:8000"
+{% endif %}
+{% endif %}
   # S3 storage access
   DJANGO_AWS_REGION_NAME: "{{ copier__aws_region }}"
-  DJANGO_AWS_STORAGE_BUCKET_NAME: "CHANGEME_S3_BUCKET_NAME"
 {% if copier__use_sentry %}
   SENTRY_DSN_BACKEND: ""
   ENVIRONMENT: "dev"

@@ -29,7 +29,7 @@ spec:
     - websecure
   routes:
     - kind: Rule
-      match: Host(`nextjs.{{ copier__domain_name }}`)
+      match: Host(`nextjs.sandbox.{{ copier__domain_name }}`)
       priority: 10
       services:
         - name: frontend

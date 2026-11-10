@@ -82,7 +82,11 @@ spec:
             ]
         - name: backend-migration
           image: backend:latest
+{% if copier__use_wagtail %}
+          command: ["sh", "-c", "python manage.py migrate && python manage.py initialize_cms"]
+{% else %}
           command: ["python", "manage.py", "migrate"]
+{% endif %}
           envFrom:
             - configMapRef:
                 name: app-config

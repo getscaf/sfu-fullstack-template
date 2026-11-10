@@ -17,6 +17,14 @@ resource "aws_s3_bucket" "static_storage" {
   tags   = local.common_tags
 }
 
+resource "aws_s3_bucket_public_access_block" "static_storage" {
+  bucket                  = aws_s3_bucket.static_storage.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
 resource "aws_s3_bucket_server_side_encryption_configuration" "static_storage" {
   bucket = aws_s3_bucket.static_storage.bucket
 
@@ -76,7 +84,9 @@ resource "aws_s3_bucket_policy" "static_storage" {
             "Service": "cloudfront.amazonaws.com"
         },
         "Action": "s3:GetObject",
-        "Resource": "${aws_s3_bucket.static_storage.arn}/*",
+        "Resource": {% if copier__use_wagtail %}${jsonencode([
+            for prefix in local.public_asset_prefixes : "${aws_s3_bucket.static_storage.arn}/${prefix}*"
+        ])}{% else %}"${aws_s3_bucket.static_storage.arn}/*"{% endif %},
         "Condition": {
             "StringEquals": {
                 "AWS:SourceArn": "${aws_cloudfront_distribution.cloudfront.arn}"

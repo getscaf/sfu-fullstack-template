@@ -1,2 +1,12 @@
 @import "tailwindcss";
 
+{% if copier__use_wagtail %}
+.cms-body p, .cms-body ul, .cms-body ol { margin-block: 1rem; }
+.cms-body h2 { margin-block: 1.5rem 1rem; font-size: 1.5rem; font-weight: bold; }
+.cms-body h3 { margin-block: 1rem; font-size: 1.25rem; font-weight: bold; }
+.cms-body ul { list-style: disc inside; }
+.cms-body ol { list-style: decimal inside; }
+.cms-body a { text-decoration: underline; }
+.cms-body img { max-width: 100%; height: auto; }
+{% endif %}
+

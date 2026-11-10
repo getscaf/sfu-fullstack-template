@@ -13,10 +13,63 @@ permissions:
   contents: read
 
 jobs:
-  test-template:
+  generation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: 'template/.python-version'
+      - run: pip install -r .github/requirements.txt
+      - run: python -m unittest tests.test_template_generation
+
+  storage-variants:
+    runs-on: ubuntu-latest
+    needs: generation
+    strategy:
+      fail-fast: false
+      matrix:
+        mail-service: ['Mailgun', 'Amazon SES', 'Other SMTP']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: 'template/.python-version'
+      - run: pip install -r .github/requirements.txt
+      - name: Generate a project for the selected mail service
+        env:
+          SCAF_MAIL_SERVICE: ${{ matrix.mail-service }}
+        run: |
+          python - <<'PY'
+          import os
+          from tests.generation import generate_project
+          generate_project("storage-project", copier__mail_service=os.environ["SCAF_MAIL_SERVICE"])
+          PY
+      - name: Install generated production dependencies
+        working-directory: storage-project/backend
+        run: |
+          # This focused import test does not require a full Docker/cluster setup.
+          sudo apt-get update
+          sudo apt-get install -y build-essential libpq-dev
+          pip install --no-deps -r requirements/build.txt
+          pip install --no-deps --no-build-isolation -r requirements/production.txt
+      - name: Test real production storage settings in isolation
+        working-directory: storage-project/backend
+        env:
+          DJANGO_SECRET_KEY: test-only
+          DATABASE_URL: 'sqlite:///:memory:'
+        run: python -m django test cms_demo.utils.tests.test_storage --settings=config.settings.test
+
+  test-template-variants:
     runs-on: ubuntu-latest
     environment: dev
     timeout-minutes: 90
+    needs: generation
+    strategy:
+      fail-fast: false
+      matrix:
+        nextjs: [true, false]
+        wagtail: [true, false]
     services:
       postgres:
         image: postgres:17
@@ -78,6 +131,8 @@ jobs:
           --trust \
           --defaults \
           --vcs-ref=HEAD \
+          --data copier__create_nextjs_frontend=${{ matrix.nextjs }} \
+          --data copier__use_wagtail=${{ matrix.wagtail }} \
           . test-project
 
       - name: Run lint and formatting checks
@@ -87,6 +142,7 @@ jobs:
           make check-lint-and-formatting
 
       - name: Run frontend lint and tests
+        if: matrix.nextjs
         shell: bash
         run: |
           cd test-project
@@ -113,6 +169,26 @@ jobs:
           set -euo pipefail
           cd test-project
           tilt ci
+
+  # Keep one stable required check for branch protection and the nightly updater.
+  test-template:
+    runs-on: ubuntu-latest
+    environment: dev
+    needs: [generation, storage-variants, test-template-variants]
+    if: always()
+    steps:
+      - name: Require all template checks to pass
+        env:
+          TEMPLATE_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python - <<'PYTHON'
+          import json
+          import os
+          results = json.loads(os.environ["TEMPLATE_RESULTS"])
+          failures = {name: job["result"] for name, job in results.items() if job["result"] != "success"}
+          if failures:
+              raise SystemExit(f"Template checks did not pass: {failures}")
+          PYTHON
 
       - name: Notify Slack on Failure
         if: failure() && github.event_name == 'schedule'

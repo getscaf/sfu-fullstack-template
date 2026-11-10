@@ -8,6 +8,9 @@ const NavBar = () => {
           <span className='text-xl'>SCAF</span>
           <Link href='/'>Home</Link>
           <Link href='/about'>About</Link>
+{% if copier__use_wagtail %}
+          <Link href='/content'>Content</Link>
+{% endif %}
         </div>
       </div>
     </nav>

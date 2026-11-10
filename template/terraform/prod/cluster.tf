@@ -1,5 +1,8 @@
 module "cluster" {
   source                 = "../modules/base"
+{% if copier__create_nextjs_frontend %}
+  nextjs_domain_name     = "nextjs.prod.{{ copier__domain_name }}"
+{% endif %}
   environment            = "prod"
   cluster_name           = "{{ copier__project_dash }}-prod"
   domain_name            = "prod.{{ copier__domain_name }}"
