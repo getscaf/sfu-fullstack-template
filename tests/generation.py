@@ -2,20 +2,18 @@
 
 import importlib.util
 import os
-import shutil
 import tempfile
 from pathlib import Path
 
 from copier import run_copy
 
-ROOT = Path(__file__).resolve().parents[1]
+from tests.template_source import export_template_source
 
 
 def generate_project(destination, *, nextjs=True, wagtail=True, **answers):
     with tempfile.TemporaryDirectory(prefix="scaf-template-") as source:
         source = Path(source)
-        shutil.copy2(ROOT / "copier.yml", source / "copier.yml")
-        shutil.copytree(ROOT / "template", source / "template")
+        export_template_source(source)
         run_copy(
             str(source),
             str(destination),
