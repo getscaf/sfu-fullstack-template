@@ -84,12 +84,9 @@ resource "aws_s3_bucket_policy" "static_storage" {
             "Service": "cloudfront.amazonaws.com"
         },
         "Action": "s3:GetObject",
-        "Resource": {% if copier__use_wagtail %}[
-            "${aws_s3_bucket.static_storage.arn}/static/*",
-            "${aws_s3_bucket.static_storage.arn}/media/original_images/*",
-            "${aws_s3_bucket.static_storage.arn}/media/images/*",
-            "${aws_s3_bucket.static_storage.arn}/media/avatar_images/*"
-        ]{% else %}"${aws_s3_bucket.static_storage.arn}/*"{% endif %},
+        "Resource": {% if copier__use_wagtail %}${jsonencode([
+            for prefix in local.public_asset_prefixes : "${aws_s3_bucket.static_storage.arn}/${prefix}*"
+        ])}{% else %}"${aws_s3_bucket.static_storage.arn}/*"{% endif %},
         "Condition": {
             "StringEquals": {
                 "AWS:SourceArn": "${aws_cloudfront_distribution.cloudfront.arn}"

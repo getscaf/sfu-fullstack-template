@@ -55,7 +55,7 @@ CMS pages render directly on the backend. The public domain's CloudFront distrib
 
 The sandbox/prod overlays select `{{ copier__project_dash }}-{sandbox|prod}-static-storage`. `STORAGES` uses the existing S3 backends, private objects and CloudFront OAC. The deployment init container runs `collectstatic` before the backend starts. Existing sealed S3 credentials are available to both processes; IAM/SDK credentials remain supported outside that setup.
 
-Only `static/`, `media/original_images/`, `media/images/` and Wagtail profile `media/avatar_images/` are public through CloudFront. Documents use Wagtail's `/documents/` serving view and collection permissions; direct document URLs are denied in development and through S3/CloudFront. Link documents using the editor's document chooser. Keep new private upload directories outside public CDN grants. Adding another public media directory requires explicitly updating both the bucket grant and CDN routing.
+Only `static/`, `media/original_images/`, `media/images/` and Wagtail profile `media/avatar_images/` are public through CloudFront. Documents use Wagtail's `/documents/` serving view and collection permissions; direct document URLs are denied in development and through S3/CloudFront. Link documents using the editor's document chooser. Keep new private upload directories outside public CDN grants. To add another public media directory, update `public_asset_prefixes` in `terraform/modules/base/locals.tf`; both the bucket grant and CDN routing are derived from that list.
 
 These generated defaults target new projects. Moving domains, existing files or Terraform state in an already deployed application requires a separate migration.
 

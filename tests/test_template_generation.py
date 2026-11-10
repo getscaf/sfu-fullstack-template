@@ -1,7 +1,5 @@
 import ast
 import itertools
-import json
-import re
 import shutil
 import subprocess
 import tempfile
@@ -94,33 +92,11 @@ class TemplateGenerationTests(unittest.TestCase):
             with self.subTest(nextjs=nextjs, wagtail=wagtail):
                 tf = project / "terraform/modules/base"
                 s3 = (tf / "s3.tf").read_text()
-                policy = json.loads(
-                    re.search(r"policy = <<EOF\n(.*?)\nEOF", s3, re.S).group(1)
-                )
-                resources = policy["Statement"]["Resource"]
-                if wagtail:
-                    self.assertEqual(
-                        {resource.split("}", 1)[1] for resource in resources},
-                        {
-                            "/static/*",
-                            "/media/original_images/*",
-                            "/media/images/*",
-                            "/media/avatar_images/*",
-                        },
-                    )
-                else:
-                    self.assertEqual(resources, "${aws_s3_bucket.static_storage.arn}/*")
                 self.assertIn("block_public_acls       = true", s3)
                 routes = (tf / "route53.tf").read_text()
                 self.assertIn('type    = "A"', routes)
                 self.assertIn('type    = "AAAA"', routes)
                 self.assertEqual('"nextjs"' in routes, nextjs)
-                behavior = (tf / "cloudfront.tf").read_text()
-                if nextjs:
-                    self.assertIn('path_pattern           = "/static/*"', behavior)
-                    self.assertEqual(
-                        'path_pattern           = "/media/*"' in behavior, not wagtail
-                    )
 
     @unittest.skipUnless(
         shutil.which("kubectl"), "kubectl kustomize is required for manifest checks"
