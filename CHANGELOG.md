@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.18.0](https://github.com/getscaf/sfu-fullstack-template/compare/v1.17.2...v1.18.0) (2026-11-10)
+
+### Features
+
+* add optional Wagtail CMS with Next.js and Django rendering ([#200](https://github.com/getscaf/sfu-fullstack-template/issues/200)) ([628895e](https://github.com/getscaf/sfu-fullstack-template/commit/628895e11146b3835f48bd6ede223083908c2852))
+
 ## [1.17.2](https://github.com/getscaf/sfu-fullstack-template/compare/v1.17.1...v1.17.2) (2026-11-06)
 
 ### Bug Fixes
