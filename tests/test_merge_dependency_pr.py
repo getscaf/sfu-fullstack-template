@@ -59,6 +59,17 @@ class MergeGateTests(unittest.TestCase):
             ],
         )
 
+    def test_wait_only_returns_after_checks_pass_without_merging(self):
+        with patch.object(
+            merge.subprocess,
+            "run",
+            side_effect=[self.pr(checks=[]), self.pr()],
+        ) as run, patch.object(merge.time, "sleep"):
+            merge.merge_when_ready("owner/repo", "7", "expected", wait_only=True)
+        self.assertEqual(run.call_count, 2)
+        for call in run.call_args_list:
+            self.assertNotIn("merge", call.args[0])
+
     def test_changed_head_or_closed_pr_prevents_merge(self):
         for response in (self.pr(sha="other"), self.pr(state="CLOSED")):
             with self.subTest(response=response.stdout), patch.object(

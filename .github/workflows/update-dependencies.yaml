@@ -18,6 +18,13 @@ jobs:
     runs-on: ubuntu-latest
     environment: dev
     timeout-minutes: 120
+    # The default token only reads PR checks while waiting. Writes use the
+    # dependency GitHub App token.
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: read
+      statuses: read
     strategy:
       fail-fast: false
       matrix:
@@ -47,12 +54,13 @@ jobs:
         with:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
-      - name: Check automation token
+      - name: Check automation app secrets
         env:
-          UPDATE_TOKEN: ${{ secrets.DEPENDENCY_UPDATE_TOKEN }}
+          APP_ID: ${{ secrets.DEPENDENCY_APP_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.DEPENDENCY_APP_PRIVATE_KEY }}
         run: |
-          if [ -z "$UPDATE_TOKEN" ]; then
-            echo "::error::Set DEPENDENCY_UPDATE_TOKEN as documented in docs/dependency-updates.md"
+          if [ -z "$APP_ID" ] || [ -z "$APP_PRIVATE_KEY" ]; then
+            echo "::error::Set DEPENDENCY_APP_ID and DEPENDENCY_APP_PRIVATE_KEY as documented in docs/dependency-updates.md"
             exit 1
           fi
       - uses: actions/setup-python@v5
@@ -70,13 +78,21 @@ jobs:
         env:
           DEPENDENCY_GROUP: ${{ matrix.group }}
         run: python .github/scripts/dependency_pins.py "$DEPENDENCY_GROUP"
-      # The dedicated token allows PR checks to run without human approval.
+      # App installation tokens expire after one hour, so mint one for PR
+      # creation and a fresh one for the merge request after checks pass.
+      - name: Generate app token for PR update
+        id: pr-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.DEPENDENCY_APP_ID }}
+          private-key: ${{ secrets.DEPENDENCY_APP_PRIVATE_KEY }}
+      # The app token allows PR checks to run without human approval.
       # Fixed branches update existing PRs, including failing ones.
       - name: Create or update dependency PR
         id: pr
         uses: peter-evans/create-pull-request@v8
         with:
-          token: ${{ secrets.DEPENDENCY_UPDATE_TOKEN }}
+          token: ${{ steps.pr-token.outputs.token }}
           branch: automation/dependencies/${{ matrix.group }}
           base: ${{ github.event.repository.default_branch }}
           add-paths: ${{ matrix.paths }}
@@ -88,10 +104,26 @@ jobs:
             Test template and Dependency tests validate this commit before protected auto-merge is requested. A failing PR stays open and is refreshed on the next nightly run.
 
             Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-      - name: Validate PR checks and request protected auto-merge
+      - name: Wait for PR checks
+        id: checks
         if: steps.pr.outputs.pull-request-number && steps.pr.outputs.pull-request-operation != 'closed'
         env:
-          GH_TOKEN: ${{ secrets.DEPENDENCY_UPDATE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.pull-request-number }}
+          PR_SHA: ${{ steps.pr.outputs.pull-request-head-sha }}
+        run: python .github/scripts/merge_dependency_pr.py --wait-only "$GITHUB_REPOSITORY" "$PR_NUMBER" "$PR_SHA"
+      - name: Generate app token for merge request
+        id: merge-token
+        if: steps.checks.outcome == 'success'
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.DEPENDENCY_APP_ID }}
+          private-key: ${{ secrets.DEPENDENCY_APP_PRIVATE_KEY }}
+      # Re-validates the head and checks once more before requesting merge.
+      - name: Request protected auto-merge
+        if: steps.checks.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ steps.merge-token.outputs.token }}
           PR_NUMBER: ${{ steps.pr.outputs.pull-request-number }}
           PR_SHA: ${{ steps.pr.outputs.pull-request-head-sha }}
         run: python .github/scripts/merge_dependency_pr.py "$GITHUB_REPOSITORY" "$PR_NUMBER" "$PR_SHA"

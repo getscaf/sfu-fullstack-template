@@ -29,7 +29,7 @@ def checks_passed(checks, required):
     return not pending and required <= names
 
 
-def merge_when_ready(repository, number, sha, timeout=5400):
+def merge_when_ready(repository, number, sha, timeout=5400, wait_only=False):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         result = subprocess.run(
@@ -55,6 +55,8 @@ def merge_when_ready(repository, number, sha, timeout=5400):
         if pr["state"] != "OPEN":
             raise RuntimeError(f'PR is {pr["state"]}')
         if checks_passed(pr["statusCheckRollup"], REQUIRED_CHECKS):
+            if wait_only:
+                return
             subprocess.run(
                 [
                     "gh",
@@ -81,5 +83,10 @@ if __name__ == "__main__":
     parser.add_argument("repository")
     parser.add_argument("number")
     parser.add_argument("sha")
+    parser.add_argument(
+        "--wait-only",
+        action="store_true",
+        help="return once checks pass without requesting auto-merge",
+    )
     args = parser.parse_args()
-    merge_when_ready(args.repository, args.number, args.sha)
+    merge_when_ready(args.repository, args.number, args.sha, wait_only=args.wait_only)

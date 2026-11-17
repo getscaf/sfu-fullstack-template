@@ -53,11 +53,14 @@ packages without executing package lifecycle scripts or changing
 
 Configure the existing `dev` environment with:
 
-- `DEPENDENCY_UPDATE_TOKEN`: a fine-grained token for a dedicated automation
-  identity, scoped to this repository. Grant Contents and Pull requests write
-  access and Checks and Commit statuses read access. The identity must not have
-  a protection-rule bypass. Using this token allows created PRs to trigger the
-  normal PR workflows; the default workflow token remains read-only.
+- `DEPENDENCY_APP_ID` and `DEPENDENCY_APP_PRIVATE_KEY`: the App ID and a
+  private key for a dedicated GitHub App, installed only on this repository.
+  Grant Contents and Pull requests write access and Checks and Commit statuses
+  read access. Do not add the app to any ruleset bypass list, and do not reuse
+  the release app, which has a bypass. App tokens let created PRs trigger the
+  normal PR workflows. The default workflow token stays read-only and polls
+  checks, because app tokens expire after one hour. The job mints a fresh app
+  token for the merge request after checks pass.
 - `SLACK_WEBHOOK_URL`: the incoming-webhook URL used for failure notifications.
 
 Enable repository auto-merge and squash merging. Require the `test-template`
