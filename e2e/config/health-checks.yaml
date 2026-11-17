@@ -1,0 +1,42 @@
+# Service Health Check Configuration
+# Defines which services to monitor and how to verify their health
+
+services:
+  frontend:
+    name: "Frontend"
+    type: "http"
+    url: "http://frontend:3000"
+    health_endpoint: "/"
+    expected_status: 200
+    description: "React/Vue web application"
+    timeout_seconds: 30
+    retries: 5
+  
+  backend:
+    name: "Backend API"
+    type: "http"
+    url: "http://backend:8000"
+    health_endpoint: "/api/health"
+    expected_status: 200
+    description: "REST API service"
+    timeout_seconds: 30
+    retries: 5
+  
+  database:
+    name: "PostgreSQL Database"
+    type: "database"
+    host: "postgres"
+    port: 5432
+    database: "app_db"
+    user: "postgres"
+    # Note: Password should be provided via environment variable DB_PASSWORD
+    health_check: "SELECT 1"
+    description: "PostgreSQL database"
+    timeout_seconds: 30
+    retries: 5
+
+# Global health check settings
+global:
+  max_wait_seconds: 120
+  check_interval_seconds: 2
+  log_level: "info"
