@@ -32,19 +32,6 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
-# Check command version
-check_version() {
-    local cmd=$1
-    local min_version=$2
-    
-    if ! command_exists "$cmd"; then
-        return 1
-    fi
-    
-    local version=$($cmd --version 2>&1 | head -1)
-    return 0
-}
-
 # Validate prerequisites
 validate_prerequisites() {
     echo "Validating E2E prerequisites..."
@@ -58,7 +45,7 @@ validate_prerequisites() {
         log_info "Docker: $docker_version"
     else
         log_error "Docker not found. Please install Docker."
-        ((missing_tools++))
+        missing_tools=$((missing_tools + 1))
     fi
     
     # Check kubectl
@@ -67,7 +54,7 @@ validate_prerequisites() {
         log_info "kubectl: $kubectl_version"
     else
         log_error "kubectl not found. Please install kubectl."
-        ((missing_tools++))
+        missing_tools=$((missing_tools + 1))
     fi
     
     # Check Tilt
@@ -76,7 +63,7 @@ validate_prerequisites() {
         log_info "Tilt: $tilt_version"
     else
         log_error "Tilt not found. Please install Tilt."
-        ((missing_tools++))
+        missing_tools=$((missing_tools + 1))
     fi
     
     # Check Python
@@ -85,7 +72,7 @@ validate_prerequisites() {
         log_info "Python 3: $python_version"
     else
         log_error "Python 3 not found. Please install Python 3.8+."
-        ((missing_tools++))
+        missing_tools=$((missing_tools + 1))
     fi
     
     echo ""
@@ -98,34 +85,46 @@ validate_prerequisites() {
     return 0
 }
 
-# Start Tilt
+# Check if Tilt is running
+is_tilt_running() {
+    # Check if tilt process exists
+    pgrep -f "tilt serve" >/dev/null 2>&1
+    return $?
+}
+
+# Start Tilt in background
 start_tilt() {
     echo ""
     echo "Starting Tilt cluster..."
     
-    if check_tilt_running; then
+    if is_tilt_running; then
         log_warn "Tilt is already running"
         return 0
     fi
     
-    cd "$PROJECT_ROOT" || exit 1
+    cd "$PROJECT_ROOT" || return 1
     
-    # Start Tilt
-    if tilt up 2>&1; then
-        echo "Waiting for Tilt to be ready..."
-        local max_wait=30
+    # Start Tilt in background (foreground mode for logs)
+    # tilt up runs in foreground; we start it in background and wait for readiness
+    if tilt up &
+    then
+        local tilt_pid=$!
+        echo "Tilt process ID: $tilt_pid"
+        
+        # Wait for tilt to be responsive (check port 10350)
+        local max_wait=60
         local elapsed=0
         
         while [ $elapsed -lt $max_wait ]; do
-            if tilt status >/dev/null 2>&1; then
-                log_info "Tilt cluster is running"
+            if curl -s http://localhost:10350 >/dev/null 2>&1; then
+                log_info "Tilt cluster is responding"
                 return 0
             fi
-            sleep 1
-            ((elapsed++))
+            sleep 2
+            elapsed=$((elapsed + 2))
         done
         
-        log_warn "Tilt did not report ready within $max_wait seconds"
+        log_warn "Tilt did not respond within $max_wait seconds, proceeding anyway"
         return 0
     else
         log_error "Failed to start Tilt"
@@ -138,26 +137,25 @@ stop_tilt() {
     echo ""
     echo "Stopping Tilt cluster..."
     
-    if ! check_tilt_running; then
-        log_warn "Tilt is not running"
+    if ! is_tilt_running; then
+        log_info "Tilt is not running"
         return 0
     fi
     
-    cd "$PROJECT_ROOT" || exit 1
+    cd "$PROJECT_ROOT" || return 1
     
+    # Use tilt down to properly shut down
     if tilt down 2>&1; then
         log_info "Tilt cluster stopped"
+        
+        # Wait for process to actually die
+        sleep 2
         return 0
     else
-        log_error "Failed to stop Tilt"
-        return 1
+        log_error "Failed to stop Tilt with 'tilt down', killing process"
+        pkill -f "tilt serve" || true
+        return 0
     fi
-}
-
-# Check if Tilt is running
-check_tilt_running() {
-    tilt status >/dev/null 2>&1
-    return $?
 }
 
 # Main function
@@ -178,9 +176,8 @@ main() {
             stop_tilt && start_tilt
             ;;
         status)
-            if check_tilt_running; then
+            if is_tilt_running; then
                 log_info "Tilt is running"
-                tilt status
             else
                 log_warn "Tilt is not running"
             fi

@@ -48,16 +48,25 @@ async def test_frontend_contains_head_tag(frontend_url):
 
 
 @pytest.mark.frontend
-async def test_frontend_contains_root_div(frontend_url):
-    """Verify frontend renders React/Vue root element."""
+async def test_frontend_contains_root_element(frontend_url):
+    """Verify frontend renders application root element."""
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.get(frontend_url)
         content = response.text
         
-        # Check for common React/Vue root element IDs
-        has_root = 'id="root"' in content or 'id="app"' in content
+        # Check for common root element IDs (Next.js, React, Vue)
+        # Next.js uses <div id="__next"> or <html>
+        # React typically uses <div id="root">
+        # Vue typically uses <div id="app">
+        has_root = any([
+            'id="__next"' in content,
+            'id="root"' in content,
+            'id="app"' in content,
+            '<main' in content.lower(),  # Semantic HTML
+        ])
         assert has_root, \
-            "Frontend response missing root div (id='root' or id='app'). " \
+            "Frontend response missing application root element. " \
+            f"Expected id='__next', id='root', id='app', or <main>. " \
             f"First 1000 chars: {response.text[:1000]}"
 
 

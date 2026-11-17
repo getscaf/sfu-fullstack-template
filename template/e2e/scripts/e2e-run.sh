@@ -59,6 +59,14 @@ main() {
     echo "Step 3: Running E2E tests..."
     cd "$PROJECT_ROOT" || exit 1
     
+    # Set environment variables for localhost targets (from Tilt port-forwards)
+    export FRONTEND_URL="http://localhost:3000"
+    export BACKEND_URL="http://localhost:8000"
+    export DB_HOST="localhost"
+    export DB_NAME="${DB_NAME:-myapp}"
+    export DB_USER="${DB_USER:-myapp}"
+    export DB_PASSWORD="${DB_PASSWORD}"
+    
     local test_failed=0
     if pytest e2e/tests/ -v --tb=short 2>&1 | tee "$REPORTS_DIR/test_output.log"; then
         log_info "All tests passed"

@@ -1,12 +1,11 @@
-"""
-Pytest configuration and fixtures.
+"""Pytest configuration and fixtures.
 Provides shared fixtures for all E2E tests.
 """
 
 import os
 import sys
 import pytest
-import asyncio
+import pytest_asyncio
 from pathlib import Path
 
 # Add parent directory to path for imports
@@ -16,13 +15,8 @@ from lib.health_checker import HealthChecker, HealthStatus
 from lib.fixtures import load_test_data, get_database_config
 
 
-# Configure asyncio for pytest
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create an event loop for the test session."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
+# Configure pytest-asyncio with auto mode
+pytest_plugins = ('pytest_asyncio',)
 
 
 @pytest.fixture(scope="session")
@@ -51,9 +45,9 @@ def reports_dir(project_root):
     return reports
 
 
-@pytest.fixture(scope="session")
+@pytest_asyncio.fixture(scope="session")
 async def health_checker(config_dir):
-    """Create a health checker instance."""
+    """Create a health checker instance for the test session."""
     health_checks_config = config_dir / "health-checks.yaml"
     if not health_checks_config.exists():
         pytest.skip("health-checks.yaml not found")
@@ -63,7 +57,7 @@ async def health_checker(config_dir):
 
 @pytest.fixture(scope="session")
 def test_data(config_dir):
-    """Load test data."""
+    """Load test data from configuration."""
     test_data_config = config_dir / "test-data.yaml"
     if not test_data_config.exists():
         pytest.skip("test-data.yaml not found")
@@ -73,14 +67,14 @@ def test_data(config_dir):
 
 @pytest.fixture(scope="function")
 def frontend_url():
-    """Get frontend URL from environment or default."""
-    return os.getenv("FRONTEND_URL", "http://frontend:3000")
+    """Get frontend URL from environment or use localhost default."""
+    return os.getenv("FRONTEND_URL", "http://localhost:3000")
 
 
 @pytest.fixture(scope="function")
 def backend_url():
-    """Get backend URL from environment or default."""
-    return os.getenv("BACKEND_URL", "http://backend:8000")
+    """Get backend URL from environment or use localhost default."""
+    return os.getenv("BACKEND_URL", "http://localhost:8000")
 
 
 @pytest.fixture(scope="function")
@@ -92,12 +86,12 @@ def database_config(test_data):
 @pytest.fixture(scope="function")
 def db_password():
     """Get database password from environment."""
-    return os.getenv("DB_PASSWORD", "postgres")
+    return os.getenv("DB_PASSWORD", "")
 
 
-# Pytest configuration
 def pytest_configure(config):
-    """Configure pytest markers."""
+    """Configure pytest including markers and asyncio mode."""
+    # Add custom markers
     config.addinivalue_line(
         "markers", "health: mark test as a health check"
     )

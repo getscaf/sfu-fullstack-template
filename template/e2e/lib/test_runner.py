@@ -5,7 +5,7 @@ Provides test runner and report generation utilities.
 
 import subprocess
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
@@ -14,7 +14,7 @@ class TestReport:
     """Represents a test execution report."""
     
     def __init__(self):
-        self.timestamp = datetime.utcnow().isoformat()
+        self.timestamp = datetime.now(timezone.utc).isoformat()
         self.tests: List[Dict[str, Any]] = []
         self.passed = 0
         self.failed = 0

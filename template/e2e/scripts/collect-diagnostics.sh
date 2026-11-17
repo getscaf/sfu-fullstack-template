@@ -60,13 +60,14 @@ main() {
     # Pod logs
     log_section "Pod Logs"
     if command -v kubectl >/dev/null 2>&1; then
-        # Get all pods and collect their logs
-        local pods=$(kubectl get pods -A -o json 2>/dev/null | grep -o '"name":"[^"]*"' | cut -d'"' -f4)
-        
-        for pod in $pods; do
-            echo "--- Logs for pod: $pod ---" >> "$OUTPUT_FILE"
-            kubectl logs "$pod" -A --timestamps=true --tail=100 2>/dev/null | tee -a "$OUTPUT_FILE" || echo "No logs available" >> "$OUTPUT_FILE"
-            echo "" >> "$OUTPUT_FILE"
+        # Get all pods with namespace and collect their logs
+        kubectl get pods -A -o json 2>/dev/null | \
+        jq -r '.items[] | "\(.metadata.namespace) \(.metadata.name)"' | while read -r ns pod; do
+            if [ -n "$ns" ] && [ -n "$pod" ]; then
+                echo "--- Logs for pod: $ns/$pod ---" >> "$OUTPUT_FILE"
+                kubectl logs -n "$ns" "$pod" --timestamps=true --tail=100 2>&1 | tee -a "$OUTPUT_FILE" || echo "No logs available for $ns/$pod" >> "$OUTPUT_FILE"
+                echo "" >> "$OUTPUT_FILE"
+            fi
         done
     else
         log_error "kubectl not found"

@@ -1,39 +1,37 @@
 # Service Health Check Configuration
-# Defines which services to monitor and how to verify their health
+# LOCALHOST TARGETS: These use port-forwards from 'tilt up' or 'tilt ci'
+# To override URLs, set environment variables: FRONTEND_URL, BACKEND_URL, DB_HOST, DB_NAME, DB_USER
 
 services:
   frontend:
     name: "Frontend"
     type: "http"
-    url: "http://frontend:3000"
+    url: "${FRONTEND_URL:-http://localhost:3000}"
     health_endpoint: "/"
     expected_status: 200
-    description: "React/Vue web application"
+    description: "Next.js web application"
     timeout_seconds: 30
-    retries: 5
   
   backend:
     name: "Backend API"
     type: "http"
-    url: "http://backend:8000"
-    health_endpoint: "/api/health"
+    url: "${BACKEND_URL:-http://localhost:8000}"
+    health_endpoint: "/healthz"
     expected_status: 200
-    description: "REST API service"
+    description: "Django REST API service"
     timeout_seconds: 30
-    retries: 5
   
   database:
     name: "PostgreSQL Database"
     type: "database"
-    host: "postgres"
+    host: "${DB_HOST:-localhost}"
     port: 5432
-    database: "app_db"
-    user: "postgres"
-    # Note: Password should be provided via environment variable DB_PASSWORD
+    database: "${DB_NAME:-myapp}"
+    user: "${DB_USER:-myapp}"
+    # Password should be provided via environment variable DB_PASSWORD
     health_check: "SELECT 1"
     description: "PostgreSQL database"
     timeout_seconds: 30
-    retries: 5
 
 # Global health check settings
 global:

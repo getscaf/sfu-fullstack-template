@@ -93,8 +93,8 @@ Installed packages:
 
 The project must include a `Tiltfile` that defines:
 
-- Frontend service (accessible on http://frontend:3000)
-- Backend API service (accessible on http://backend:8000)
+- Frontend service (accessible on http://localhost:3000)
+- Backend API service (accessible on http://localhost:8000)
 - PostgreSQL database (accessible on postgres:5432)
 
 Verify the Tiltfile exists:
@@ -125,7 +125,7 @@ services:
   frontend:
     name: "Frontend"
     type: "http"
-    url: "http://frontend:3000"
+    url: "http://localhost:3000"
     health_endpoint: "/"
     expected_status: 200
     timeout_seconds: 30
@@ -161,10 +161,10 @@ Override default configuration using environment variables:
 
 ```bash
 # Frontend URL
-export FRONTEND_URL="http://frontend:3000"
+export FRONTEND_URL="http://localhost:3000"
 
 # Backend URL
-export BACKEND_URL="http://backend:8000"
+export BACKEND_URL="http://localhost:8000"
 
 # Database password
 export DB_PASSWORD="postgres"

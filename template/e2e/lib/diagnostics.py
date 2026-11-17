@@ -4,7 +4,7 @@ Gathers logs, pod status, and other debugging information.
 """
 
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, List
 
@@ -33,7 +33,7 @@ class DiagnosticsCollector:
         report.append("=" * 60)
         report.append("DIAGNOSTIC REPORT")
         report.append("=" * 60)
-        report.append(f"Generated: {datetime.utcnow().isoformat()}Z")
+        report.append(f"Generated: {datetime.now(timezone.utc).isoformat()}")
         report.append("")
         
         report.append(self.collect_pod_status())
@@ -88,9 +88,10 @@ class DiagnosticsCollector:
         section.append("=" * 60)
         
         try:
-            # Get pod names
+            # Get pod names with namespaces
             result = subprocess.run(
-                ['kubectl', 'get', 'pods', '-A', '-o', 'jsonpath={.items[*].metadata.name}'],
+                ['kubectl', 'get', 'pods', '-A', '-o', 
+                 'jsonpath={range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}'],
                 capture_output=True,
                 text=True,
                 timeout=10
@@ -100,25 +101,30 @@ class DiagnosticsCollector:
                 section.append(f"Error getting pods: {result.stderr}")
                 return "\n".join(section)
             
-            pod_names = result.stdout.split()
-            
-            for pod_name in pod_names:
-                section.append(f"--- Logs for {pod_name} ---")
-                try:
-                    log_result = subprocess.run(
-                        ['kubectl', 'logs', pod_name, '--timestamps=true', '--tail=50'],
-                        capture_output=True,
-                        text=True,
-                        timeout=10
-                    )
-                    if log_result.returncode == 0:
-                        section.append(log_result.stdout or "[No logs]")
-                    else:
-                        section.append(f"[Could not retrieve logs: {log_result.stderr}]")
-                except Exception as e:
-                    section.append(f"[Error: {e}]")
-                
-                section.append("")
+            # Parse pod list and collect logs
+            for line in result.stdout.strip().split('\n'):
+                if not line.strip():
+                    continue
+                parts = line.split()
+                if len(parts) >= 2:
+                    namespace, pod_name = parts[0], parts[1]
+                    section.append(f"--- Logs for {namespace}/{pod_name} ---")
+                    try:
+                        log_result = subprocess.run(
+                            ['kubectl', 'logs', '-n', namespace, pod_name, 
+                             '--timestamps=true', '--tail=50'],
+                            capture_output=True,
+                            text=True,
+                            timeout=10
+                        )
+                        if log_result.returncode == 0:
+                            section.append(log_result.stdout or "[No logs]")
+                        else:
+                            section.append(f"[Could not retrieve logs: {log_result.stderr}]")
+                    except Exception as e:
+                        section.append(f"[Error: {e}]")
+                    
+                    section.append("")
         
         except Exception as e:
             section.append(f"Failed to collect pod logs: {e}")
