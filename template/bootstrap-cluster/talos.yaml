@@ -26,7 +26,12 @@ tasks:
       Generate the initial Talos configuration files for the control plane
       and Talos nodes.
     requires:
-      vars: [KUBERNETES_VERSION]
+      vars: [ENV, KUBERNETES_VERSION]
+    vars:
+      CLUSTER_NAME:
+        sh: yq -r '.CLUSTER_NAME' {{ '{{.ENV}}' }}/.env
+      CONTROL_PLANE_ENDPOINT:
+        sh: yq -r '.CONTROL_PLANE_ENDPOINT' {{ '{{.ENV}}' }}/.env
     cmds:
       - |
         talosctl gen config {{ '{{.CLUSTER_NAME}}' }} {{ '{{.CONTROL_PLANE_ENDPOINT}}' }} \
