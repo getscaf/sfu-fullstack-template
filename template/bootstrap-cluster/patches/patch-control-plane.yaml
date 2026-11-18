@@ -1,8 +1,15 @@
+# Allow scheduling workloads on the control plane since we don't have a
+# separate control plane. This is the generated control-plane node config
+# without the NoSchedule taint.
+apiVersion: v1alpha1
+kind: KubeNodeConfig
+registerWithFQDN: true
+nodeIP: {}
+labels:
+  node-role.kubernetes.io/control-plane: ""
+  node.kubernetes.io/exclude-from-external-load-balancers: ""
+---
 cluster:
-  # Allow scheduling work loads on the control plane since we don't have a
-  # separate control plane
-  allowSchedulingOnControlPlanes: true
-
   # Install Kubelet Serving Certificate Approver and metrics-server during
   # bootstrap
   extraManifests:

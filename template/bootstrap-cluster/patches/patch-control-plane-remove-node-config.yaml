@@ -1,0 +1,5 @@
+# Remove the generated node config so the next patch can replace it
+# without the control-plane NoSchedule taint.
+apiVersion: v1alpha1
+kind: KubeNodeConfig
+$patch: delete

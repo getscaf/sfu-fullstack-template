@@ -97,7 +97,7 @@ tasks:
       K3S_TOKEN:
         sh: tr -dc A-Za-z0-9 </dev/urandom | head -c 13
     requires:
-      vars: [ENV]
+      vars: [ENV, KUBERNETES_VERSION]
     silent: true
     cmds:
       - |
@@ -109,6 +109,7 @@ tasks:
         ssh -oStrictHostKeyChecking=no -i {{ '{{.ENV}}' }}/id_ed25519 \
           ubuntu@{{ '{{.FIRST_PUBLIC_IP}}' }} \
           'curl -sfL https://get.k3s.io | K3S_TOKEN={{ '{{.K3S_TOKEN}}' }} \
+          INSTALL_K3S_VERSION=v{{ '{{.KUBERNETES_VERSION}}' }}+k3s1 \
           INSTALL_K3S_EXEC="server {{ '{{.CLUSTER_INIT}}' }} \
           --tls-san {{ '{{.FIRST_PUBLIC_IP}}' }} --tls-san {{ '{{.FIRST_PRIVATE_IP}}' }} \
           --node-ip {{ '{{.FIRST_PRIVATE_IP}}' }} \
@@ -138,6 +139,7 @@ tasks:
             echo "Installing $PUBLIC_IP..."
             ssh -oStrictHostKeyChecking=no -i {{ '{{.ENV}}' }}/id_ed25519 ubuntu@$PUBLIC_IP \
               'curl -sfL https://get.k3s.io | K3S_TOKEN={{ '{{.K3S_TOKEN}}' }} \
+              INSTALL_K3S_VERSION=v{{ '{{.KUBERNETES_VERSION}}' }}+k3s1 \
               INSTALL_K3S_EXEC="server --server https://{{ '{{.FIRST_PRIVATE_IP}}' }}:6443 \
               --tls-san {{ '{{.FIRST_PUBLIC_IP}}' }} --tls-san {{ '{{.FIRST_PRIVATE_IP}}' }} \
               --node-ip '$PRIVATE_IP' \
