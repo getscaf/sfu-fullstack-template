@@ -72,8 +72,6 @@ tasks:
     env:
       KUBECONFIG: "{{ '{{.ENV}}' }}/kubeconfig"
     cmds:
-      - helm repo add argocd https://argoproj.github.io/argo-helm
-      - helm repo update
       - helm install argocd argo-cd
           --repo https://argoproj.github.io/argo-helm
           --version {{ '{{.ARGOCD_VERSION}}' }}
