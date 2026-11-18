@@ -45,17 +45,25 @@ tasks:
           --with-docs=false
   set_node_ips:
     desc: |
-      Set the endpoints in the Talos configuration using the public IPs of
-      the control plane nodes from Terraform output.
+      Set the endpoints in the Talos configuration to the public IPs of the
+      control plane nodes, and the nodes to their private IPs, from Terraform
+      output. Talos forwards requests from an endpoint to the target node.
+      Forwarding to a node's public IP is blocked by the security group, so
+      the nodes use their private IPs.
     vars:
       EC2_HOSTS:
         sh: |
           tofu -chdir={{ '{{.TOFU_DIR}}' }}/{{ '{{.ENV}}' }} \
             output -raw control_plane_nodes_public_ips | tr ',' ' '
+      EC2_PRIVATE_IPS:
+        sh: |
+          tofu -chdir={{ '{{.TOFU_DIR}}' }}/{{ '{{.ENV}}' }} \
+            output -raw control_plane_nodes_private_ips | tr ',' ' '
     requires:
       vars: [ENV]
     cmds:
       - talosctl config endpoint {{ '{{.EC2_HOSTS}}' }}
+      - talosctl config node {{ '{{.EC2_PRIVATE_IPS}}' }}
   apply_talos_config:
     desc: |
       Apply the Talos configuration to all nodes in the control plane.
@@ -73,7 +81,7 @@ tasks:
       Bootstrap the Kubernetes cluster on the first control plane node.
     vars:
       FIRST_NODE:
-        sh: yq -r '.contexts[].endpoints[0]' {{ '{{.ENV}}' }}/talosconfig
+        sh: yq -r '.contexts[].nodes[0]' {{ '{{.ENV}}' }}/talosconfig
     cmds:
       - talosctl bootstrap --nodes {{ '{{.FIRST_NODE}}' }}
   generate_kubeconfig:
@@ -82,7 +90,7 @@ tasks:
       Talos.
     vars:
       FIRST_NODE:
-        sh: yq -r '.contexts[].endpoints[0]' {{ '{{.ENV}}' }}/talosconfig
+        sh: yq -r '.contexts[].nodes[0]' {{ '{{.ENV}}' }}/talosconfig
     cmds:
       - talosctl kubeconfig $KUBECONFIG --nodes {{ '{{.FIRST_NODE}}' }} --force
   upgrade_talos:
@@ -95,7 +103,7 @@ tasks:
     cmds:
       - task: health
       - |
-        for node in $(yq -r '.contexts[].endpoints[]' $TALOSCONFIG); do
+        for node in $(yq -r '.contexts[].nodes[]' $TALOSCONFIG); do
           tag=$(talosctl version --nodes $node --short | awk '/Tag:/ {print $2}'); \
           if [ -z "$tag" ]; then echo "Could not read the Talos version of $node"; exit 1; fi; \
           echo "Installing {{ '{{.TALOS_FACTORY_INSTALLER}}' }}:$tag on $node"; \
@@ -107,7 +115,7 @@ tasks:
     cmds:
       - task: health
       - |
-        for node in $(yq -r '.contexts[].endpoints[]' $TALOSCONFIG); do
+        for node in $(yq -r '.contexts[].nodes[]' $TALOSCONFIG); do
           talosctl patch mc \
             --nodes $node \
             --patch @patches/patch-ecr-credential-helper.yaml; \
@@ -148,7 +156,7 @@ tasks:
       Check the health of the Talos cluster.
     vars:
       FIRST_NODE:
-        sh: yq -r '.contexts[].endpoints[0]' {{ '{{.ENV}}' }}/talosconfig
+        sh: yq -r '.contexts[].nodes[0]' {{ '{{.ENV}}' }}/talosconfig
     cmds:
       - talosctl health --nodes {{ '{{.FIRST_NODE}}' }}
   services:
@@ -156,7 +164,7 @@ tasks:
       Check service status on all notes.
     cmds:
       - |
-        for node in $(yq -r '.contexts[].endpoints[]' $TALOSCONFIG); do
+        for node in $(yq -r '.contexts[].nodes[]' $TALOSCONFIG); do
           talosctl service --nodes $node;
         done
   delete_all_secrets:
