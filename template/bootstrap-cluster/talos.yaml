@@ -153,12 +153,14 @@ tasks:
           --secret-string "$(base64 -w0 $KUBECONFIG)"
   health:
     desc: |
-      Check the health of the Talos cluster.
+      Check the health of the Talos cluster. The checks run from this
+      machine, because nodes can't reach the Kubernetes API through the load
+      balancer's public address.
     vars:
       FIRST_NODE:
         sh: yq -r '.contexts[].nodes[0]' {{ '{{.ENV}}' }}/talosconfig
     cmds:
-      - talosctl health --nodes {{ '{{.FIRST_NODE}}' }}
+      - talosctl health --server=false --nodes {{ '{{.FIRST_NODE}}' }}
   services:
     desc: |
       Check service status on all notes.
