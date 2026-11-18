@@ -25,9 +25,12 @@ tasks:
     desc: |
       Generate the initial Talos configuration files for the control plane
       and Talos nodes.
+    requires:
+      vars: [KUBERNETES_VERSION]
     cmds:
       - |
         talosctl gen config {{ '{{.CLUSTER_NAME}}' }} {{ '{{.CONTROL_PLANE_ENDPOINT}}' }} \
+          --kubernetes-version {{ '{{.KUBERNETES_VERSION}}' }} \
           --output-types controlplane,talosconfig \
           --output ./{{ '{{.ENV}}' }}/ \
           --config-patch @patches/patch-machine.yaml \
@@ -78,12 +81,19 @@ tasks:
       - talosctl kubeconfig $KUBECONFIG --nodes {{ '{{.FIRST_NODE}}' }} --force
   upgrade_talos:
     desc: |
-      Upgrade Talos on all control plane nodes to a specified version.
+      Reinstall Talos on all control plane nodes from the Image Factory
+      installer to add the schematic's system extensions. Each node keeps
+      the Talos version it booted with.
+    requires:
+      vars: [TALOS_FACTORY_INSTALLER]
     cmds:
       - task: health
       - |
         for node in $(yq -r '.contexts[].endpoints[]' $TALOSCONFIG); do
-          talosctl upgrade --nodes $node --image {{ '{{.TALOS_FACTORY_IMAGE}}' }}; \
+          tag=$(talosctl version --nodes $node --short | awk '/Tag:/ {print $2}'); \
+          if [ -z "$tag" ]; then echo "Could not read the Talos version of $node"; exit 1; fi; \
+          echo "Installing {{ '{{.TALOS_FACTORY_INSTALLER}}' }}:$tag on $node"; \
+          talosctl upgrade --nodes $node --image {{ '{{.TALOS_FACTORY_INSTALLER}}' }}:$tag; \
         done
   enable_ecr_credential_helper:
     desc: |
