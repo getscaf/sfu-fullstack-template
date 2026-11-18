@@ -171,19 +171,22 @@ tasks:
         done
   delete_all_secrets:
     desc: |
-      Delete all related secrets from AWS Secrets Manager.
+      Delete all related secrets from AWS Secrets Manager. Secrets that
+      don't exist are skipped.
     requires:
       vars: [ENV]
     cmds:
       - |
-        aws secretsmanager delete-secret \
-          --secret-id "{{ '{{.ENV}}' }}_kubeconfig" --force-delete-without-recovery
-      - |
-        aws secretsmanager delete-secret \
-          --secret-id "{{ '{{.ENV}}' }}_talosconfig_yaml" --force-delete-without-recovery
-      - |
-        aws secretsmanager delete-secret \
-          --secret-id "{{ '{{.ENV}}' }}_talos_controlplane_yaml" --force-delete-without-recovery
+        for name in kubeconfig talosconfig_yaml talos_controlplane_yaml; do
+          id="{{ '{{.ENV}}' }}_$name"
+          if aws secretsmanager describe-secret --secret-id "$id" >/dev/null 2>&1; then
+            aws secretsmanager delete-secret --secret-id "$id" \
+              --force-delete-without-recovery >/dev/null
+            echo "Deleted $id"
+          else
+            echo "Skipped $id (not found)"
+          fi
+        done
   reset_config:
     desc: |
       Remove all config files and delete secrets in AWS Secrets Manager

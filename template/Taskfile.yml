@@ -227,7 +227,13 @@ tasks:
     cmds:
       - task: validate-environment
         vars: {ACTION: 'Tearing down', ENV: '{{.ENV}}'}
+{% endraw %}
+      {%- if copier__operating_system == "talos" %}
+      - task: bootstrap-cluster:talos:delete_all_secrets
+      {%- elif copier__operating_system == "k3s" %}
       - task: bootstrap-cluster:k3s:delete-all-secrets
+      {%- endif %}
+{% raw %}
         vars: {ENV: '{{.ENV}}'}
       - task: terraform:destroy-environment-dir
         vars: {ENV: '{{.ENV}}'}
