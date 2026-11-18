@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.18.1](https://github.com/getscaf/sfu-fullstack-template/compare/v1.18.0...v1.18.1) (2026-11-18)
+
+### Bug Fixes
+
+* **ci:** use GitHub App token for nightly dependency updates ([#216](https://github.com/getscaf/sfu-fullstack-template/issues/216)) ([fb74b62](https://github.com/getscaf/sfu-fullstack-template/commit/fb74b623c272670cac1a13ed8c1e1bcdaed696c4))
+
 ## [1.18.0](https://github.com/getscaf/sfu-fullstack-template/compare/v1.17.2...v1.18.0) (2026-11-10)
 
 ### Features
