@@ -151,13 +151,20 @@ tasks:
         for REPO_URL in $REPO_URLS; do
           REPO_NAME=$(basename "$REPO_URL")
           echo "Checking repository: $REPO_NAME"
-          IMAGE_IDS=$(aws ecr list-images --repository-name "$REPO_NAME" --query 'imageIds[*]' --output json)
-          if [ -n "$IMAGE_IDS" ] && [ "$IMAGE_IDS" != "[]" ]; then
-            echo "Deleting images from $REPO_NAME..."
+          # Multi-arch images are an index plus per-platform manifests. ECR
+          # refuses to delete a manifest while its index exists, so repeat
+          # until the repository is empty.
+          for pass in 1 2 3 4 5; do
+            IMAGE_IDS=$(aws ecr list-images --repository-name "$REPO_NAME" --query 'imageIds[*]' --output json)
+            if [ -z "$IMAGE_IDS" ] || [ "$IMAGE_IDS" = "[]" ]; then
+              [ "$pass" = 1 ] && echo "No images to delete in $REPO_NAME."
+              continue 2
+            fi
+            echo "Deleting images from $REPO_NAME (pass $pass)..."
             aws ecr batch-delete-image --repository-name "$REPO_NAME" --image-ids "$IMAGE_IDS" >/dev/null
-          else
-            echo "No images to delete in $REPO_NAME."
-          fi
+          done
+          echo "Could not delete all images from $REPO_NAME." >&2
+          exit 1
         done
 
   commit-changes:
