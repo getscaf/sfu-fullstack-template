@@ -111,7 +111,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ steps.pr.outputs.pull-request-number }}
           PR_SHA: ${{ steps.pr.outputs.pull-request-head-sha }}
-        run: python .github/scripts/merge_dependency_pr.py --wait-only "$GITHUB_REPOSITORY" "$PR_NUMBER" "$PR_SHA"
+        run: python .github/scripts/merge_dependency_pr.py wait "$GITHUB_REPOSITORY" "$PR_NUMBER" "$PR_SHA"
       - name: Generate app token for merge request
         id: merge-token
         if: steps.checks.outcome == 'success'
@@ -119,14 +119,15 @@ jobs:
         with:
           app-id: ${{ secrets.DEPENDENCY_APP_ID }}
           private-key: ${{ secrets.DEPENDENCY_APP_PRIVATE_KEY }}
-      # Re-validates the head and checks once more before requesting merge.
+      # One read of the PR, no polling: fails if the head changed or checks are
+      # no longer ready, so the short-lived app token never waits on checks.
       - name: Request protected auto-merge
         if: steps.checks.outcome == 'success'
         env:
           GH_TOKEN: ${{ steps.merge-token.outputs.token }}
           PR_NUMBER: ${{ steps.pr.outputs.pull-request-number }}
           PR_SHA: ${{ steps.pr.outputs.pull-request-head-sha }}
-        run: python .github/scripts/merge_dependency_pr.py "$GITHUB_REPOSITORY" "$PR_NUMBER" "$PR_SHA"
+        run: python .github/scripts/merge_dependency_pr.py merge "$GITHUB_REPOSITORY" "$PR_NUMBER" "$PR_SHA"
 
   notify-failure:
     needs: update
