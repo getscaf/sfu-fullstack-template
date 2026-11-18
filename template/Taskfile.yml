@@ -172,7 +172,11 @@ tasks:
     cmds:
       - |
         git add .
-        git commit -m "feat(ci): update generated files"
+        if git diff --cached --quiet; then
+          echo "No generated files to commit."
+        else
+          git commit -m "feat(ci): update generated files"
+        fi
 
   validate-environment:
     desc: Validate that environment is sandbox or production
