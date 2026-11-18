@@ -31,3 +31,6 @@ spec:
         maxDuration: 3m
     syncOptions:
       - CreateNamespace=true
+      # The clusters and poolers CRDs exceed the 262,144-byte
+      # last-applied-configuration annotation limit of client-side apply.
+      - ServerSideApply=true
