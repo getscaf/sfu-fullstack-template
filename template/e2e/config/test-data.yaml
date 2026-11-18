@@ -1,0 +1,22 @@
+# Test Data Configuration
+# Provides test fixtures and constants for E2E verification
+
+test_users:
+  - username: "test_user"
+    email: "test@example.com"
+    password: "test_password_123"
+
+test_items:
+  - title: "Test Item 1"
+    description: "First test item for E2E verification"
+  - title: "Test Item 2"
+    description: "Second test item for E2E verification"
+  - title: "Test Item 3"
+    description: "Third test item for E2E verification"
+
+database:
+  host: "postgres"
+  port: 5432
+  user: "postgres"
+  password: "postgres"
+  name: "app_db"
