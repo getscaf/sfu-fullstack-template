@@ -10,17 +10,27 @@ tasks:
       vars: [ENV]
     cmds:
       - task: generate_configs
+        vars: {ENV: {{ "'{{.ENV}}'" }}}
       - task: set_node_ips
+        vars: {ENV: {{ "'{{.ENV}}'" }}}
       - task: store_controlplane_config
+        vars: {ENV: {{ "'{{.ENV}}'" }}}
       - task: store_talosconfig
+        vars: {ENV: {{ "'{{.ENV}}'" }}}
       - task: apply_talos_config
+        vars: {ENV: {{ "'{{.ENV}}'" }}}
       - sleep 30
       - task: bootstrap_kubernetes
+        vars: {ENV: {{ "'{{.ENV}}'" }}}
       - sleep 30
       - task: generate_kubeconfig
+        vars: {ENV: {{ "'{{.ENV}}'" }}}
       - task: store_kubeconfig
+        vars: {ENV: {{ "'{{.ENV}}'" }}}
       - task: upgrade_talos
+        vars: {ENV: {{ "'{{.ENV}}'" }}}
       - task: enable_ecr_credential_helper
+        vars: {ENV: {{ "'{{.ENV}}'" }}}
   generate_configs:
     desc: |
       Generate the initial Talos configuration files for the control plane
@@ -102,6 +112,7 @@ tasks:
       vars: [TALOS_FACTORY_INSTALLER]
     cmds:
       - task: health
+        vars: {ENV: {{ "'{{.ENV}}'" }}}
       - |
         for node in $(yq -r '.contexts[].nodes[]' $TALOSCONFIG); do
           tag=$(talosctl version --nodes $node --short | awk '/Tag:/ {print $2}'); \
@@ -114,6 +125,7 @@ tasks:
       Enable the ECR credential helper on all control plane nodes.
     cmds:
       - task: health
+        vars: {ENV: {{ "'{{.ENV}}'" }}}
       - |
         for node in $(yq -r '.contexts[].nodes[]' $TALOSCONFIG); do
           talosctl patch mc \
@@ -194,6 +206,7 @@ tasks:
       vars: [ENV]
     cmds:
       - task: delete_all_secrets
+        vars: {ENV: {{ "'{{.ENV}}'" }}}
       - cd {{ '{{.ENV}}' }} && rm -f controlplane.yaml kubeconfig talosconfig
   kubeconfig:
     desc: |
@@ -206,6 +219,7 @@ tasks:
     silent: true
     cmds:
       - task: generate_kubeconfig
+        vars: {ENV: {{ "'{{.ENV}}'" }}}
       - echo "export KUBECONFIG=$(pwd)/{{ '{{.ENV}}' }}/kubeconfig"
   fetch_config:
     desc: |
