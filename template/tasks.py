@@ -275,7 +275,31 @@ def cleanup_generated_files():
                 os.remove(path)
 
 
+def check_docker():
+    try:
+        subprocess.run(
+            ["docker", "info"],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=10,
+        )
+    except FileNotFoundError:
+        raise SystemExit(
+            "Docker is required to create this project. Install Docker, start your "
+            "Docker runtime, and verify 'docker info' before retrying."
+        ) from None
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        raise SystemExit(
+            "Docker daemon is not reachable. Start Docker Desktop or your "
+            "Docker-compatible runtime (Docker Engine on Linux) and retry.\n"
+            "If Docker is already running, check 'docker info', your Docker context, "
+            "and DOCKER_HOST/DOCKER_CONTEXT in this terminal."
+        ) from None
+
+
 def main():
+    check_docker()
     set_flags_in_secrets()
     cleanup_generated_files()
     if "{{ copier__create_nextjs_frontend }}" == "True":
