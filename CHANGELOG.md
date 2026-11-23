@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.18.2](https://github.com/getscaf/sfu-fullstack-template/compare/v1.18.1...v1.18.2) (2026-11-23)
+
+### Bug Fixes
+
+* check Docker availability before project setup ([#225](https://github.com/getscaf/sfu-fullstack-template/issues/225)) ([cefb881](https://github.com/getscaf/sfu-fullstack-template/commit/cefb8812ebaa7658dfec9a8185298cc8769b0bed))
+
 ## [1.18.1](https://github.com/getscaf/sfu-fullstack-template/compare/v1.18.0...v1.18.1) (2026-11-18)
 
 ### Bug Fixes
