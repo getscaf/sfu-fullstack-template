@@ -140,7 +140,7 @@ tasks:
     cmds:
       - |
         aws secretsmanager create-secret \
-          --name "{{ '{{.ENV}}' }}_talosconfig_yaml" \
+          --name "{{ copier__project_slug }}_{{ '{{.ENV}}' }}_talosconfig_yaml" \
           --secret-string "$(base64 -w0 $TALOSCONFIG)"
   store_controlplane_config:
     desc: |
@@ -151,7 +151,7 @@ tasks:
     cmds:
       - |
         aws secretsmanager create-secret \
-          --name "{{ '{{.ENV}}' }}_talos_controlplane_yaml" \
+          --name "{{ copier__project_slug }}_{{ '{{.ENV}}' }}_talos_controlplane_yaml" \
           --secret-string "$(base64 -w0 ./{{ '{{.ENV}}' }}/controlplane.yaml)"
   store_kubeconfig:
     desc: |
@@ -161,7 +161,7 @@ tasks:
     cmds:
       - |
         aws secretsmanager create-secret \
-          --name "{{ '{{.ENV}}' }}_kubeconfig" \
+          --name "{{ copier__project_slug }}_{{ '{{.ENV}}' }}_kubeconfig" \
           --secret-string "$(base64 -w0 $KUBECONFIG)"
   health:
     desc: |
@@ -190,7 +190,7 @@ tasks:
     cmds:
       - |
         for name in kubeconfig talosconfig_yaml talos_controlplane_yaml; do
-          id="{{ '{{.ENV}}' }}_$name"
+          id="{{ copier__project_slug }}_{{ '{{.ENV}}' }}_$name"
           if err=$(aws secretsmanager delete-secret --secret-id "$id" \
               --force-delete-without-recovery 2>&1 >/dev/null); then
             echo "Deleted $id"
@@ -232,16 +232,16 @@ tasks:
     cmds:
       - |
         aws secretsmanager get-secret-value \
-          --secret-id "{{ '{{.ENV}}' }}_kubeconfig" | \
+          --secret-id "{{ copier__project_slug }}_{{ '{{.ENV}}' }}_kubeconfig" | \
           yq ".SecretString" | tr -d '"' | \
           base64 -d > ./{{ '{{.ENV}}' }}/kubeconfig
       - |
         aws secretsmanager get-secret-value \
-          --secret-id "{{ '{{.ENV}}' }}_talosconfig_yaml" | \
+          --secret-id "{{ copier__project_slug }}_{{ '{{.ENV}}' }}_talosconfig_yaml" | \
           yq ".SecretString" | tr -d '"' | \
           base64 -d > ./{{ '{{.ENV}}' }}/talosconfig
       - |
         aws secretsmanager get-secret-value \
-          --secret-id "{{ '{{.ENV}}' }}_talos_controlplane_yaml" | \
+          --secret-id "{{ copier__project_slug }}_{{ '{{.ENV}}' }}_talos_controlplane_yaml" | \
           yq ".SecretString" | tr -d '"' | \
           base64 -d > ./{{ '{{.ENV}}' }}/controlplane.yaml
