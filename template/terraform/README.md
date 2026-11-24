@@ -1,5 +1,8 @@
 # Terraform
 
+For environment destruction, interrupted-run recovery, and updating an existing
+generated project, see [Environment teardown and retry](../docs/teardown.md).
+
 This directory contains the Terraform configurations for the Scaf project. The
 configurations are organized into several directories, each serving a specific
 purpose. Below is a brief overview of each directory and instructions on how to

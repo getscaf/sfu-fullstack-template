@@ -1,0 +1,170 @@
+{% raw %}
+version: '3'
+
+# Variables are inherited from parent Taskfile.yml
+
+tasks:
+  # Generic terraform tasks
+  deploy-terraform:
+    desc: Generic terraform deployment task
+    internal: true
+    interactive: true
+    silent: true
+    vars:
+      RESOURCE_NAME: "{{.RESOURCE_NAME}}"
+      DIR: "{{.DIR}}"
+      APPLY_ARGS:
+        sh: if [ "{{.TERRAFORM_AUTO_APPROVE}}" = "1" ]; then echo "-auto-approve"; fi
+    dir: "{{.DIR}}"
+    cmds:
+      - echo -e "{{.BLUE}}=== Deploying {{.RESOURCE_NAME}} resources ==={{.END}}"
+      - tofu init
+      - tofu plan -out=tfplan.out && tofu show -no-color tfplan.out >> .terraform/tfplan-$(date +%Y%m%d-%H%M%S).log
+      - |
+        if [ "{{.TERRAFORM_AUTO_APPROVE}}" != "1" ]; then
+          echo -e "{{.YELLOW}}Review the plan for {{.RESOURCE_NAME}}.{{.END}}"
+          read -p "Do you want to apply this plan? Type 'yes' to confirm: " confirm
+          if [ "$confirm" != "yes" ]; then
+            echo -e "{{.RED}}Deployment of {{.RESOURCE_NAME}} cancelled.{{.END}}"
+            rm -f tfplan.out
+            exit 1
+          fi
+        fi
+      - tofu apply {{.APPLY_ARGS}} tfplan.out
+      - rm -f tfplan.out
+
+  destroy-terraform:
+    desc: Generic terraform destruction task
+    internal: true
+    interactive: true
+    silent: true
+    vars:
+      RESOURCE_NAME: "{{.RESOURCE_NAME}}"
+      DIR: "{{.DIR}}"
+      APPLY_ARGS:
+        sh: if [ "{{.TERRAFORM_AUTO_APPROVE}}" = "1" ]; then echo "-auto-approve"; fi
+    dir: "{{.DIR}}"
+    cmds:
+      - echo -e "{{.BLUE}}=== Planning destruction of {{.RESOURCE_NAME}} resources ==={{.END}}"
+      - tofu init
+      - tofu plan -destroy -out=tfplan.out && tofu show -no-color tfplan.out >> .terraform/tfplan-$(date +%Y%m%d-%H%M%S).log
+      - |
+        if [ "{{.TERRAFORM_AUTO_APPROVE}}" != "1" ]; then
+          echo -e "{{.YELLOW}}Review the destruction plan for {{.RESOURCE_NAME}}.{{.END}}"
+          read -p "Do you want to apply this plan? Type 'yes' to confirm: " confirm
+          if [ "$confirm" != "yes" ]; then
+            echo -e "{{.RED}}Destruction of {{.RESOURCE_NAME}} cancelled.{{.END}}"
+            rm -f tfplan.out
+            exit 1
+          fi
+        fi
+      - |
+        if [ "{{.RESOURCE_NAME}}" = "bootstrap" ]; then
+          echo -e "{{.BLUE}}=== Cleaning S3 bucket before destroying bootstrap infrastructure ==={{.END}}"
+          task clean-s3-bucket
+        fi
+      - tofu apply {{.APPLY_ARGS}} tfplan.out
+      - rm -f tfplan.out
+
+  # Deployment tasks
+  deploy-bootstrap-dir:
+    desc: Deploy resources in the bootstrap directory
+    internal: true
+    cmds:
+      - task: deploy-terraform
+        vars:
+          RESOURCE_NAME: bootstrap
+          DIR: bootstrap
+
+  deploy-github-dir:
+    desc: Deploy resources in the github directory
+    internal: true
+    cmds:
+      - task: deploy-terraform
+        vars:
+          RESOURCE_NAME: github
+          DIR: github
+
+  deploy-environment-dir:
+    desc: Deploy resources in the environment directory
+    internal: true
+    vars:
+      ENV: "{{.ENV}}"
+    cmds:
+      - task: deploy-terraform
+        vars:
+          RESOURCE_NAME: "{{.ENV}}"
+          DIR: "{{.ENV}}"
+      - task: update-cloudfront-distribution-id
+        vars: { ENV: '{{.ENV}}' }
+
+  update-cloudfront-distribution-id:
+    desc: Update CloudFront Distribution ID in kustomization.yaml files
+    internal: true
+    silent: true
+    vars:
+      ENV: "{{.ENV}}"
+      DISTRIBUTION_ID:
+        sh: tofu -chdir={{.ENV}} output -raw cloudfront_distribution_id
+    cmds:
+      - |
+        echo -e "{{.BLUE}}Updating CloudFront Distribution ID in k8s/{{.ENV}}/kustomization.yaml...{{.END}}"
+        sed -i '/path: \/data\/DISTRIBUTION_ID/{N;s|value: ".*"|value: "{{.DISTRIBUTION_ID}}"|;}' ../k8s/{{.ENV}}/kustomization.yaml
+        echo -e "{{.GREEN}}Updated DISTRIBUTION_ID to {{.DISTRIBUTION_ID}}{{.END}}"
+
+  # Destruction tasks
+  destroy-environment-dir:
+    desc: Destroy resources in the environment directory
+    internal: true
+    vars:
+      ENV: "{{.ENV}}"
+    cmds:
+      - task: destroy-terraform
+        vars:
+          RESOURCE_NAME: "{{.ENV}}"
+          DIR: "{{.ENV}}"
+
+  destroy-github-dir:
+    desc: Destroy resources in the github directory
+    internal: true
+    cmds:
+      - task: destroy-terraform
+        vars:
+          RESOURCE_NAME: github
+          DIR: github
+
+  clean-s3-bucket:
+    desc: Clean up S3 bucket objects before destroying bootstrap
+    silent: true
+    cmds:
+      - echo -e "{{.BLUE}}=== Emptying S3 bucket before destroying bootstrap infrastructure ==={{.END}}"
+      - echo "Removing all versions of objects from the bucket..."
+      - |
+        aws s3api list-object-versions --bucket {{.TERRAFORM_STATE_BUCKET}} --output json --query='{Objects: Versions[].{Key:Key,VersionId:VersionId}}' > .versions.json 2>/dev/null || echo '{"Objects":[]}' > .versions.json
+        OBJECT_COUNT=$(cat .versions.json | jq -r ".Objects | length")
+        echo "Found $OBJECT_COUNT object versions to delete"
+        if [ "$OBJECT_COUNT" -gt 0 ]; then
+          echo "Deleting $OBJECT_COUNT object versions..."
+          aws s3api delete-objects --bucket {{.TERRAFORM_STATE_BUCKET}} --delete file://.versions.json --output json > /dev/null
+        fi
+      - echo "Removing all delete markers from the bucket..."
+      - |
+        aws s3api list-object-versions --bucket {{.TERRAFORM_STATE_BUCKET}} --output json --query='{Objects: DeleteMarkers[].{Key:Key,VersionId:VersionId}}' > .delete-markers.json 2>/dev/null || echo '{"Objects":[]}' > .delete-markers.json
+        MARKER_COUNT=$(cat .delete-markers.json | jq -r ".Objects | length")
+        echo "Found $MARKER_COUNT delete markers to remove"
+        if [ "$MARKER_COUNT" -gt 0 ]; then
+          echo "Removing $MARKER_COUNT delete markers..."
+          aws s3api delete-objects --bucket {{.TERRAFORM_STATE_BUCKET}} --delete file://.delete-markers.json --output json > /dev/null
+        fi
+      - rm -f .versions.json .delete-markers.json
+
+  destroy-bootstrap-dir:
+    desc: Destroy resources in the bootstrap directory
+    internal: true
+    cmds:
+      - task: destroy-terraform
+        vars:
+          RESOURCE_NAME: bootstrap
+          DIR: bootstrap
+
+{% endraw %}

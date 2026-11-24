@@ -33,38 +33,26 @@ tasks:
       - tofu apply {{.APPLY_ARGS}} tfplan.out
       - rm -f tfplan.out
 
-  destroy-terraform:
-    desc: Generic terraform destruction task
-    internal: true
+  teardown:
+    desc: Inspect, confirm, and resume teardown using existing state
     interactive: true
     silent: true
-    vars:
-      RESOURCE_NAME: "{{.RESOURCE_NAME}}"
-      DIR: "{{.DIR}}"
-      APPLY_ARGS:
-        sh: if [ "{{.TERRAFORM_AUTO_APPROVE}}" = "1" ]; then echo "-auto-approve"; fi
-    dir: "{{.DIR}}"
+    requires:
+      vars: [ENV]
+    env:
+      TEARDOWN_ENVIRONMENT: '{{.ENV}}'
+      TERRAFORM_AUTO_APPROVE: '{{.TERRAFORM_AUTO_APPROVE | default "0"}}'
     cmds:
-      - echo -e "{{.BLUE}}=== Planning destruction of {{.RESOURCE_NAME}} resources ==={{.END}}"
-      - tofu init
-      - tofu plan -destroy -out=tfplan.out && tofu show -no-color tfplan.out >> .terraform/tfplan-$(date +%Y%m%d-%H%M%S).log
       - |
-        if [ "{{.TERRAFORM_AUTO_APPROVE}}" != "1" ]; then
-          echo -e "{{.YELLOW}}Review the destruction plan for {{.RESOURCE_NAME}}.{{.END}}"
-          read -p "Do you want to apply this plan? Type 'yes' to confirm: " confirm
-          if [ "$confirm" != "yes" ]; then
-            echo -e "{{.RED}}Destruction of {{.RESOURCE_NAME}} cancelled.{{.END}}"
-            rm -f tfplan.out
-            exit 1
-          fi
+        if ! command -v python3 >/dev/null 2>&1; then
+          echo "Teardown requires Python 3.9 or later (python3)." >&2
+          exit 1
         fi
-      - |
-        if [ "{{.RESOURCE_NAME}}" = "bootstrap" ]; then
-          echo -e "{{.BLUE}}=== Cleaning S3 bucket before destroying bootstrap infrastructure ==={{.END}}"
-          task clean-s3-bucket
+        if ! python3 -c 'import sys; sys.exit(sys.version_info < (3, 9))'; then
+          echo "Teardown requires Python 3.9 or later; select a compatible python3." >&2
+          exit 1
         fi
-      - tofu apply {{.APPLY_ARGS}} tfplan.out
-      - rm -f tfplan.out
+        python3 scripts/teardown.py --environment "$TEARDOWN_ENVIRONMENT"
 
   # Deployment tasks
   deploy-bootstrap-dir:
@@ -112,59 +100,29 @@ tasks:
         sed -i '/path: \/data\/DISTRIBUTION_ID/{N;s|value: ".*"|value: "{{.DISTRIBUTION_ID}}"|;}' ../k8s/{{.ENV}}/kustomization.yaml
         echo -e "{{.GREEN}}Updated DISTRIBUTION_ID to {{.DISTRIBUTION_ID}}{{.END}}"
 
-  # Destruction tasks
+  # Legacy adapters keep callers on the single guarded teardown path.
   destroy-environment-dir:
-    desc: Destroy resources in the environment directory
     internal: true
-    vars:
-      ENV: "{{.ENV}}"
     cmds:
-      - task: destroy-terraform
-        vars:
-          RESOURCE_NAME: "{{.ENV}}"
-          DIR: "{{.ENV}}"
+      - task: teardown
+        vars: {ENV: '{{.ENV}}'}
 
   destroy-github-dir:
-    desc: Destroy resources in the github directory
     internal: true
     cmds:
-      - task: destroy-terraform
-        vars:
-          RESOURCE_NAME: github
-          DIR: github
-
-  clean-s3-bucket:
-    desc: Clean up S3 bucket objects before destroying bootstrap
-    silent: true
-    cmds:
-      - echo -e "{{.BLUE}}=== Emptying S3 bucket before destroying bootstrap infrastructure ==={{.END}}"
-      - echo "Removing all versions of objects from the bucket..."
-      - |
-        aws s3api list-object-versions --bucket {{.TERRAFORM_STATE_BUCKET}} --output json --query='{Objects: Versions[].{Key:Key,VersionId:VersionId}}' > .versions.json 2>/dev/null || echo '{"Objects":[]}' > .versions.json
-        OBJECT_COUNT=$(cat .versions.json | jq -r ".Objects | length")
-        echo "Found $OBJECT_COUNT object versions to delete"
-        if [ "$OBJECT_COUNT" -gt 0 ]; then 
-          echo "Deleting $OBJECT_COUNT object versions..."
-          aws s3api delete-objects --bucket {{.TERRAFORM_STATE_BUCKET}} --delete file://.versions.json --output json > /dev/null
-        fi
-      - echo "Removing all delete markers from the bucket..."
-      - |
-        aws s3api list-object-versions --bucket {{.TERRAFORM_STATE_BUCKET}} --output json --query='{Objects: DeleteMarkers[].{Key:Key,VersionId:VersionId}}' > .delete-markers.json 2>/dev/null || echo '{"Objects":[]}' > .delete-markers.json
-        MARKER_COUNT=$(cat .delete-markers.json | jq -r ".Objects | length")
-        echo "Found $MARKER_COUNT delete markers to remove"
-        if [ "$MARKER_COUNT" -gt 0 ]; then 
-          echo "Removing $MARKER_COUNT delete markers..."
-          aws s3api delete-objects --bucket {{.TERRAFORM_STATE_BUCKET}} --delete file://.delete-markers.json --output json > /dev/null
-        fi
-      - rm -f .versions.json .delete-markers.json
+      - echo "Shared stacks are removed only by the environment teardown helper."
+      - exit 1
 
   destroy-bootstrap-dir:
-    desc: Destroy resources in the bootstrap directory
     internal: true
     cmds:
-      - task: destroy-terraform
-        vars:
-          RESOURCE_NAME: bootstrap
-          DIR: bootstrap
+      - echo "Bootstrap is removed only after dependent states are verified empty."
+      - exit 1
+
+  clean-s3-bucket:
+    desc: Retired; standalone state-bucket cleanup is disabled
+    cmds:
+      - echo "Use the root environment teardown task to preserve active state."
+      - exit 1
 
 {% endraw %}

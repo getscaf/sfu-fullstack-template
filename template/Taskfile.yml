@@ -140,25 +140,10 @@ tasks:
         vars: {ENV: '{{.ENV}}'}
 
   delete-ecr-images:
-    desc: Delete all images from ECR repositories for an environment
-    requires:
-      vars: [ENV]
-    prompt: "WARNING: This will permanently delete all container images in the ECR repositories for the '{{.ENV}}' environment.\nAre you sure you want to continue? Type 'yes' to confirm: "
+    desc: Retired; use environment teardown for state-aware ECR cleanup
     cmds:
-      - |
-        set -e
-        REPO_URLS=$(tofu -chdir=./terraform/{{.ENV}} output -json | jq -r 'to_entries[] | select(.key | endswith("_ecr_repo")) | .value.value | select(. != null)')
-        for REPO_URL in $REPO_URLS; do
-          REPO_NAME=$(basename "$REPO_URL")
-          echo "Checking repository: $REPO_NAME"
-          IMAGE_IDS=$(aws ecr list-images --repository-name "$REPO_NAME" --query 'imageIds[*]' --output json)
-          if [ -n "$IMAGE_IDS" ] && [ "$IMAGE_IDS" != "[]" ]; then
-            echo "Deleting images from $REPO_NAME..."
-            aws ecr batch-delete-image --repository-name "$REPO_NAME" --image-ids "$IMAGE_IDS" >/dev/null
-          else
-            echo "No images to delete in $REPO_NAME."
-          fi
-        done
+      - echo "Use task teardown-sandbox (or teardown-staging) for guarded ECR cleanup."
+      - exit 1
 
   commit-changes:
     desc: Commit any changed files
@@ -216,32 +201,22 @@ tasks:
 
   # Teardown tasks
   teardown-environment:
-    desc: Main task to teardown an environment (sandbox or production)
+    desc: Resume teardown of the selected environment
     interactive: true
     silent: true
     vars:
       ENV: '{{.ENV | default "sandbox"}}'
-    preconditions:
-      - sh: "aws s3api head-bucket --bucket {{.TERRAFORM_STATE_BUCKET}} 2>/dev/null"
-        msg: "S3 bucket already destroyed, skipping teardown operations"
     cmds:
       - task: validate-environment
         vars: {ACTION: 'Tearing down', ENV: '{{.ENV}}'}
-      - task: bootstrap-cluster:k3s:delete-all-secrets
+      - task: terraform:teardown
         vars: {ENV: '{{.ENV}}'}
-      - task: terraform:destroy-environment-dir
-        vars: {ENV: '{{.ENV}}'}
-      - task: terraform:destroy-github-dir
-      - task: terraform:destroy-bootstrap-dir
-      - echo -e "{{.GREEN}}=== {{.ENV}} environment teardown completed successfully ==={{.END}}"
 
-
-  # Convenience standalone tasks
   clean-s3-bucket-only:
-    desc: Only clean the S3 bucket without destroying resources
-    silent: true
+    desc: Retired; the state backend is cleaned only after dependent stacks
     cmds:
-      - task: terraform:clean-s3-bucket
+      - echo "Use task teardown-sandbox (or teardown-staging); standalone state deletion is disabled."
+      - exit 1
 
   deploy-sandbox:
     desc: Deploy the sandbox environment
@@ -276,8 +251,6 @@ tasks:
     silent: true
     cmds:
       - task: establish-aws-login
-      - task: delete-ecr-images
-        vars: {ENV: sandbox}
       - task: teardown-environment
         vars: {ENV: sandbox}
 

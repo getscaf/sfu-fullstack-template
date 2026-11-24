@@ -1,0 +1,303 @@
+{% raw %}
+version: '3'
+
+dotenv: ['.env', '{{.ENV}}/.env', 'bootstrap-cluster/.env']
+
+includes:
+  terraform:
+    taskfile: ./terraform/Taskfile.yml
+    dir: ./terraform
+  bootstrap-cluster:
+    taskfile: ./bootstrap-cluster/Taskfile.yml
+    dir: ./bootstrap-cluster
+    vars:
+      ENV: '{{.ENV}}'
+      ARGOCD_VERSION: '{{.ARGOCD_VERSION}}'
+vars:
+{% endraw %}
+  PROJECT_SLUG: "{{ copier__project_dash }}"
+  AWS_REGION: "{{ copier__aws_region }}"
+  AWS_ACCOUNT_ID: "{{ copier__aws_account_id }}"
+{% raw %}
+  TERRAFORM_STATE_BUCKET: "{{.PROJECT_SLUG}}-terraform-state"
+  ARGOCD_VERSION: "{{.ARGOCD_VERSION}}"
+  TERRAFORM_AUTO_APPROVE: "{{.TERRAFORM_AUTO_APPROVE}}"
+  BLUE:
+    sh: echo "\033[0;36m"
+  GREEN:
+    sh: echo "\033[0;32m"
+  YELLOW:
+    sh: echo "\033[0;33m"
+  RED:
+    sh: echo "\033[0;31m"
+  END:
+    sh: echo "\033[0m"
+
+tasks:
+  set-github-variables:
+    desc: Set GitHub repository variables for AWS credentials
+    cmds:
+      - gh variable set AWS_REGION --body "{{.AWS_REGION}}"
+      - gh variable set AWS_ACCOUNT_ID --body "{{.AWS_ACCOUNT_ID}}"
+
+  # Configuration tasks
+  establish-aws-login:
+    desc: Establish AWS login (check if logged in, login if needed)
+    interactive: true
+    silent: true
+    cmds:
+      - |
+        # Check if AWS_PROFILE is set
+        if [ -z "$AWS_PROFILE" ]; then
+          echo -e "{{.RED}}Error: AWS_PROFILE environment variable must be set{{.END}}"
+          exit 1
+        fi
+
+        PROFILE_MSG="using profile '$AWS_PROFILE'"
+        echo -e "{{.BLUE}}Checking AWS credentials $PROFILE_MSG...{{.END}}"
+
+        # Check SSO cache first (faster than API call), because sts get-caller-identity
+        #  can be slow and will return quicker about expirations, while sts get-caller-identity
+        #  does return valid credentials that are actually expired
+        NEED_LOGIN=false
+        SSO_START_URL=$(aws configure get sso_start_url --profile "$AWS_PROFILE" 2>/dev/null)
+        if [ -n "$SSO_START_URL" ]; then
+          SSO_CACHE_KEY=$(echo -n "$SSO_START_URL" | sha1sum | cut -d' ' -f1)
+          SSO_CACHE_FILE="$HOME/.aws/sso/cache/${SSO_CACHE_KEY}.json"
+
+          if [ -f "$SSO_CACHE_FILE" ]; then
+            EXPIRES_AT=$(jq -r '.expiresAt // empty' "$SSO_CACHE_FILE" 2>/dev/null)
+            if [ -n "$EXPIRES_AT" ]; then
+              EXPIRES_EPOCH=$(date -d "$EXPIRES_AT" +%s 2>/dev/null || echo 0)
+              CURRENT_TIME=$(date +%s)
+              if [ "$EXPIRES_EPOCH" -le "$CURRENT_TIME" ]; then
+                NEED_LOGIN=true
+              fi
+            else
+              NEED_LOGIN=true
+            fi
+          else
+            NEED_LOGIN=true
+          fi
+        fi
+
+        if [ "$NEED_LOGIN" = "false" ] && ! aws sts get-caller-identity --profile "$AWS_PROFILE" >/dev/null 2>&1; then
+          NEED_LOGIN=true
+        fi
+
+        if [ "$NEED_LOGIN" = "true" ]; then
+          echo -e "{{.YELLOW}}AWS login required $PROFILE_MSG...{{.END}}"
+          aws sso login --profile "$AWS_PROFILE"
+        fi
+
+        echo -e "{{.GREEN}}AWS credentials verified and working.{{.END}}"
+
+  ask-auto-approve:
+    # this isn't currently used, sharing variables in Taskfile tasks sucks
+    desc: Ask user about terraform auto-approve preference
+    interactive: true
+    cmds:
+      - |
+        echo -e "{{.YELLOW}}Would you like to auto-approve all terraform operations? (y/N):{{.END}}" >&2
+        read -p "> " auto_approve || true
+
+        if [ "$auto_approve" = "y" ] || [ "$auto_approve" = "Y" ] || [ "$auto_approve" = "yes" ]; then
+          echo -e "{{.GREEN}}Terraform operations will be auto-approved.{{.END}}" >&2
+          echo "1"
+        else
+          echo -e "{{.BLUE}}Terraform operations will require manual approval.{{.END}}" >&2
+          echo "0"
+        fi
+
+  # Deployment tasks
+  deploy-environment:
+    desc: Deploy infrastructure for an environment (sandbox or production)
+    interactive: true
+    silent: true
+    vars:
+      ENV: '{{.ENV}}'
+    cmds:
+      - task: validate-environment
+        vars: {ACTION: 'Deploying', ENV: '{{.ENV}}'}
+      - echo -e "{{.BLUE}}=== Starting deployment of {{.ENV}} environment ==={{.END}}"
+      - task: determine-control-plane-ip-address
+        vars: {ENV: '{{.ENV}}'}
+      - task: terraform:deploy-bootstrap-dir
+      - task: terraform:deploy-github-dir
+      - task: set-github-variables
+      - task: terraform:deploy-environment-dir
+        vars: {ENV: '{{.ENV}}'}
+      - task: commit-changes
+{% endraw %}
+      {%- if copier__operating_system == "talos" %}
+      - task: bootstrap-cluster:talos:bootstrap # todo: add talos alternative
+      {%- elif copier__operating_system == "k3s" %}
+      - task: bootstrap-cluster:k3s:bootstrap # todo: add talos alternative
+      {%- endif %}
+{% raw %}
+        vars: {ENV: '{{.ENV}}'}
+      - task: bootstrap-cluster:argocd:bootstrap
+        vars: {ENV: '{{.ENV}}'}
+
+  delete-ecr-images:
+    desc: Delete all images from ECR repositories for an environment
+    requires:
+      vars: [ENV]
+    prompt: "WARNING: This will permanently delete all container images in the ECR repositories for the '{{.ENV}}' environment.\nAre you sure you want to continue? Type 'yes' to confirm: "
+    cmds:
+      - |
+        set -e
+        REPO_URLS=$(tofu -chdir=./terraform/{{.ENV}} output -json | jq -r 'to_entries[] | select(.key | endswith("_ecr_repo")) | .value.value | select(. != null)')
+        for REPO_URL in $REPO_URLS; do
+          REPO_NAME=$(basename "$REPO_URL")
+          echo "Checking repository: $REPO_NAME"
+          IMAGE_IDS=$(aws ecr list-images --repository-name "$REPO_NAME" --query 'imageIds[*]' --output json)
+          if [ -n "$IMAGE_IDS" ] && [ "$IMAGE_IDS" != "[]" ]; then
+            echo "Deleting images from $REPO_NAME..."
+            aws ecr batch-delete-image --repository-name "$REPO_NAME" --image-ids "$IMAGE_IDS" >/dev/null
+          else
+            echo "No images to delete in $REPO_NAME."
+          fi
+        done
+
+  commit-changes:
+    desc: Commit any changed files
+    cmds:
+      - |
+        git add .
+        git commit -m "feat(ci): update generated files"
+
+  validate-environment:
+    desc: Validate that environment is sandbox or production
+    internal: true
+    silent: true
+    vars:
+      ACTION: '{{.ACTION | default "Processing"}}'
+    cmds:
+      - |
+        test "{{.ENV}}" = "sandbox" -o "{{.ENV}}" = "staging" -o "{{.ENV}}" = "production"
+      - |
+        [ "$?" = "0" ] || (echo -e "{{.RED}}Error: Environment must be either 'sandbox', 'staging', or 'production'{{.END}}" && exit 1)
+      - echo -e "{{.BLUE}}{{.ACTION}} the {{.ENV}} environment...{{.END}}"
+
+  determine-control-plane-ip-address:
+    desc: Determine IP addresses for control plane security group configuration
+    internal: true
+    interactive: true
+    silent: true
+    vars:
+      ENV: '{{.ENV}}'
+      CURRENT_IP:
+        sh: curl -s https://checkip.amazonaws.com 2>/dev/null || echo "unknown"
+    cmds:
+      - |
+        if [ "{{.CURRENT_IP}}" = "unknown" ] || [ -z "{{.CURRENT_IP}}" ]; then
+          echo -e "{{.RED}}Failed to fetch current IP address.{{.END}}"
+          exit 1
+        fi
+      - echo -e "{{.YELLOW}}How would you like to configure IP access for the control panel?{{.END}}"
+      - echo "1) Use my current IP only ({{.CURRENT_IP}}/32)"
+      - echo "2) Enter multiple IP addresses as a comma-separated list"
+      - |
+        read -p "Enter your choice (1/2): " ip_choice
+        if [ "$ip_choice" = "1" ]; then
+          PUBLIC_IP_CIDRS="{{.CURRENT_IP}}/32"
+        elif [ "$ip_choice" = "2" ]; then
+          echo -e "{{.YELLOW}}Enter comma-separated list of IP addresses (e.g., 1.2.3.4,5.6.7.8):{{.END}}"
+          read -p "> " PUBLIC_IP
+          PUBLIC_IP_CLEAN=$(echo "$PUBLIC_IP" | sed 's/, /,/g')
+          PUBLIC_IP_CIDRS=$(echo "$PUBLIC_IP_CLEAN" | awk -F',' '{for(i=1;i<=NF;i++) {ip=$i; if(ip !~ /\/[0-9]+$/) ip=ip"/32"; printf "%s%s", ip, (i==NF?"":",")}}')
+        else
+          echo -e "{{.RED}}Invalid choice. Exiting.{{.END}}"
+          exit 1
+        fi
+        echo -e "{{.GREEN}}Using IP address(es): $PUBLIC_IP_CIDRS{{.END}}"
+        sed -i 's|# *admin_allowed_ips *= *".*"|  admin_allowed_ips = "'"$PUBLIC_IP_CIDRS"'"|' "terraform/{{.ENV}}/cluster.tf"
+
+  # Teardown tasks
+  teardown-environment:
+    desc: Main task to teardown an environment (sandbox or production)
+    interactive: true
+    silent: true
+    vars:
+      ENV: '{{.ENV | default "sandbox"}}'
+    preconditions:
+      - sh: "aws s3api head-bucket --bucket {{.TERRAFORM_STATE_BUCKET}} 2>/dev/null"
+        msg: "S3 bucket already destroyed, skipping teardown operations"
+    cmds:
+      - task: validate-environment
+        vars: {ACTION: 'Tearing down', ENV: '{{.ENV}}'}
+      - task: bootstrap-cluster:k3s:delete-all-secrets
+        vars: {ENV: '{{.ENV}}'}
+      - task: terraform:destroy-environment-dir
+        vars: {ENV: '{{.ENV}}'}
+      - task: terraform:destroy-github-dir
+      - task: terraform:destroy-bootstrap-dir
+      - echo -e "{{.GREEN}}=== {{.ENV}} environment teardown completed successfully ==={{.END}}"
+
+
+  # Convenience standalone tasks
+  clean-s3-bucket-only:
+    desc: Only clean the S3 bucket without destroying resources
+    silent: true
+    cmds:
+      - task: terraform:clean-s3-bucket
+
+  deploy-sandbox:
+    desc: Deploy the sandbox environment
+    interactive: true
+    silent: true
+    cmds:
+      - task: establish-aws-login
+      - task: deploy-environment
+        vars: {ENV: sandbox}
+
+  deploy-staging:
+    desc: Deploy the staging environment
+    interactive: true
+    silent: false
+    cmds:
+      - task: establish-aws-login
+      - task: deploy-environment
+        vars: {ENV: '{{.ENV}}'}
+
+  deploy-production:
+    desc: Deploy the production environment
+    interactive: true
+    silent: true
+    cmds:
+      - task: establish-aws-login
+      - task: deploy-environment
+        vars: {ENV: production}
+
+  teardown-sandbox:
+    desc: Teardown the sandbox environment
+    interactive: true
+    silent: true
+    cmds:
+      - task: establish-aws-login
+      - task: delete-ecr-images
+        vars: {ENV: sandbox}
+      - task: teardown-environment
+        vars: {ENV: sandbox}
+
+  teardown-staging:
+    desc: Teardown the staging environment
+    interactive: true
+    silent: false
+    cmds:
+      - task: establish-aws-login
+      - task: teardown-environment
+        vars: {ENV: staging}
+
+  teardown-production:
+    desc: Teardown the production environment
+    interactive: true
+    silent: true
+    cmds:
+      - echo -e "{{.RED}}For safety this command isn't enabled, uncomment the task in Taskfile.yml to continue{{.END}}"
+      - exit 1
+      # - task: establish-aws-login
+      # - task: teardown-environment
+      #   vars: {ENV: production}
+{% endraw %}
