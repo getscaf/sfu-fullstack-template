@@ -49,7 +49,6 @@ tasks:
           --output-types controlplane,talosconfig \
           --output ./{{ '{{.ENV}}' }}/ \
           --config-patch @patches/patch-machine.yaml \
-          --config-patch-control-plane @patches/patch-control-plane-remove-node-config.yaml \
           --config-patch-control-plane @patches/patch-control-plane.yaml \
           --with-examples=false \
           --with-docs=false
