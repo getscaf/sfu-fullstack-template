@@ -72,7 +72,10 @@ tasks:
     env:
       KUBECONFIG: "{{ '{{.ENV}}' }}/kubeconfig"
     cmds:
-      - helm install argocd argo-cd
+      # An empty repository config keeps the operator's own Helm repos out
+      # of the install. Helm otherwise loads every configured repo's cached
+      # index and fails if one is missing.
+      - HELM_REPOSITORY_CONFIG="$(mktemp -u)" helm install argocd argo-cd
           --repo https://argoproj.github.io/argo-helm
           --version {{ '{{.ARGOCD_VERSION}}' }}
           --namespace argocd
