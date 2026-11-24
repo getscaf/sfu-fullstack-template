@@ -63,11 +63,11 @@ tasks:
     vars:
       EC2_HOSTS:
         sh: |
-          tofu -chdir={{ '{{.TOFU_DIR}}' }}/{{ '{{.ENV}}' }} \
+          tofu -chdir=../terraform/{{ '{{.ENV}}' }} \
             output -raw control_plane_nodes_public_ips | tr ',' ' '
       EC2_PRIVATE_IPS:
         sh: |
-          tofu -chdir={{ '{{.TOFU_DIR}}' }}/{{ '{{.ENV}}' }} \
+          tofu -chdir=../terraform/{{ '{{.ENV}}' }} \
             output -raw control_plane_nodes_private_ips | tr ',' ' '
     requires:
       vars: [ENV]
