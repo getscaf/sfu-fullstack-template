@@ -183,20 +183,22 @@ tasks:
         done
   delete_all_secrets:
     desc: |
-      Delete all related secrets from AWS Secrets Manager. Secrets that
-      don't exist are skipped.
+      Delete all related secrets from AWS Secrets Manager. A secret that
+      doesn't exist is skipped. Any other error stops the teardown.
     requires:
       vars: [ENV]
     cmds:
       - |
         for name in kubeconfig talosconfig_yaml talos_controlplane_yaml; do
           id="{{ '{{.ENV}}' }}_$name"
-          if aws secretsmanager describe-secret --secret-id "$id" >/dev/null 2>&1; then
-            aws secretsmanager delete-secret --secret-id "$id" \
-              --force-delete-without-recovery >/dev/null
+          if err=$(aws secretsmanager delete-secret --secret-id "$id" \
+              --force-delete-without-recovery 2>&1 >/dev/null); then
             echo "Deleted $id"
-          else
+          elif printf '%s' "$err" | grep -q ResourceNotFoundException; then
             echo "Skipped $id (not found)"
+          else
+            printf '%s\n' "$err" >&2
+            exit 1
           fi
         done
   reset_config:
