@@ -1,6 +1,16 @@
 version: '3'
 vars:
   ENV: {{ "'{{.ENV}}'" }}
+  # The root Taskfile loads .env with dotenv, but an included Taskfile
+  # can't, so read the pinned versions here too. That keeps the tasks
+  # working when run from this directory. A value already in the
+  # environment wins.
+  KUBERNETES_VERSION:
+    sh: echo "${KUBERNETES_VERSION:-$(sed -n 's/^KUBERNETES_VERSION=//p' .env 2>/dev/null)}"
+{%- if copier__operating_system == "talos" %}
+  TALOS_FACTORY_INSTALLER:
+    sh: echo "${TALOS_FACTORY_INSTALLER:-$(sed -n 's/^TALOS_FACTORY_INSTALLER=//p' .env 2>/dev/null)}"
+{%- endif %}
 
 includes:
   argocd:
