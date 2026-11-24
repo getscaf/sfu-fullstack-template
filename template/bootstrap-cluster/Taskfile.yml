@@ -1,6 +1,9 @@
 version: '3'
 vars:
   ENV: {{ "'{{.ENV}}'" }}
+  # Kubernetes version for new clusters, on Talos and k3s (as v<version>+k3s1).
+  # 1.36 is the newest minor that every Argo CD app's chart supports. Check
+  # the chart support ranges before you raise it.
   KUBERNETES_VERSION: 1.36.6
 {%- if copier__operating_system == "talos" %}
   # Image Factory AWS installer for a schematic that adds the ECR credential

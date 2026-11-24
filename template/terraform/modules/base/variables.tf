@@ -60,13 +60,6 @@ variable "prometheus_domain_name" {
   default = "prometheus.{{ copier__domain_name }}"
 }
 
-variable "kubernetes_version" {
-
-  description = "Kubernetes version to use for the cluster, if not set the k8s version shipped with the talos sdk or k3s version will be used"
-  type        = string
-  default     = null
-}
-
 variable "control_plane" {
   description = "Info for control plane that will be created"
   type = object({
