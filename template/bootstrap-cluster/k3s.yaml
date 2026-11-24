@@ -200,7 +200,7 @@ tasks:
     requires:
       vars: [ENV]
     cmds:
-      - task: delete_all_secrets
+      - task: delete-all-secrets
       - cd {{ '{{.ENV}}' }} && rm -f kubeconfig
 
   kubeconfig:
