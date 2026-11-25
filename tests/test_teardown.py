@@ -314,6 +314,41 @@ class TeardownTests(unittest.TestCase):
         self.assertIn(self.bucket, self.current()["buckets"])
         self.assertFalse(any("apply" in c for c in self.current()["calls"]))
 
+    def test_s3_cleanup_deletes_pages_before_listing_entire_bucket(self):
+        self.fixture["buckets"][self.static]["versions"] = [
+            {
+                "Key": "media/image.jpg",
+                "VersionId": "version-{:04}".format(i),
+                "DeleteMarker": i % 3 == 0,
+            }
+            for i in range(3005)
+        ]
+        self.fixture["buckets"][self.backups]["objects"] = [
+            "backup-{:04}.dump".format(i) for i in range(2005)
+        ]
+        self.persist()
+        self.assert_success(self.invoke())
+        calls = self.current()["calls"]
+        for bucket, operation in (
+            (self.static, "list-object-versions"),
+            (self.backups, "list-objects-v2"),
+        ):
+            with self.subTest(bucket=bucket):
+                listings = [
+                    index
+                    for index, call in enumerate(calls)
+                    if operation in call and bucket in call
+                ]
+                deletions = [
+                    index
+                    for index, call in enumerate(calls)
+                    if "delete-objects" in call and bucket in call
+                ]
+                self.assertGreaterEqual(len(listings), 3)
+                self.assertLess(deletions[0], listings[2])
+        self.assertTrue(any("--version-id-marker" in call for call in calls))
+        self.assertFalse(self.current()["buckets"])
+
     def test_preflight_errors_do_not_delete_anything(self):
         for error in ("AccessDenied", "ExpiredToken", "ConnectionError"):
             with self.subTest(error=error):

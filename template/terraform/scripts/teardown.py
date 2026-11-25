@@ -1030,39 +1030,42 @@ class Teardown:
         if not self.bucket_exists(bucket, region):
             return
         for _ in range(3):
-            versions = []
-            for page in self.pages(
-                "s3api",
-                "list-object-versions",
-                "--bucket",
-                bucket,
-                "--expected-bucket-owner",
-                self.account,
-                "--max-keys",
-                "1000",
-                region=region,
+            found_objects = False
+            for operation, collections, attributes in (
+                (
+                    "list-object-versions",
+                    ("Versions", "DeleteMarkers"),
+                    ("Key", "VersionId"),
+                ),
+                ("list-objects-v2", ("Contents",), ("Key",)),
             ):
-                versions.extend(
-                    {"Key": v["Key"], "VersionId": v["VersionId"]}
-                    for field in ("Versions", "DeleteMarkers")
-                    for v in page.get(field, [])
+                pages = iter(
+                    self.pages(
+                        "s3api",
+                        operation,
+                        "--bucket",
+                        bucket,
+                        "--expected-bucket-owner",
+                        self.account,
+                        "--max-keys",
+                        "1000",
+                        region=region,
+                    )
                 )
-            self.delete_objects(bucket, versions, region)
-            current = []
-            for page in self.pages(
-                "s3api",
-                "list-objects-v2",
-                "--bucket",
-                bucket,
-                "--expected-bucket-owner",
-                self.account,
-                "--max-keys",
-                "1000",
-                region=region,
-            ):
-                current.extend({"Key": v["Key"]} for v in page.get("Contents", []))
-            self.delete_objects(bucket, current, region)
-            if not versions and not current:
+                page = next(pages, None)
+                while page is not None:
+                    # Resolve the next cursor while this page still exists.
+                    # Only the current and next pages are retained in memory.
+                    following = next(pages, None)
+                    objects = [
+                        {attribute: entry[attribute] for attribute in attributes}
+                        for collection in collections
+                        for entry in page.get(collection, [])
+                    ]
+                    self.delete_objects(bucket, objects, region)
+                    found_objects = found_objects or bool(objects)
+                    page = following
+            if not found_objects:
                 print("Bucket empty: {}".format(bucket))
                 return
         raise TeardownError(

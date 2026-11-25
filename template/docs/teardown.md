@@ -26,6 +26,10 @@ markers, removes ECR repositories with their images, and creates fresh destroy
 plans for the remaining infrastructure. When bootstrap can also be removed, it
 empties the state bucket at the end, so older bootstrap state with
 `force_destroy = false` is supported.
+S3 cleanup processes bounded pages and resolves the next page before deleting
+the current page, keeping memory independent of the total bucket size and
+preserving pagination cursors. Per-object errors stop cleanup, and a final
+empty pass is required before completion.
 
 ## Updating an existing project for this fix
 

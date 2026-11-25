@@ -141,8 +141,19 @@ if tool == "aws":
         if operation == "get-bucket-location":
             emit({"LocationConstraint": bucket.get("region")})
         if operation == "list-object-versions":
-            entries = bucket["versions"]
-            start = int(option("--key-marker", "0"))
+            entries = sorted(bucket["versions"], key=lambda value: value["Key"])
+            start = 0
+            marker = option("--key-marker")
+            if marker is not None:
+                version = option("--version-id-marker")
+                try:
+                    start = next(
+                        index + 1
+                        for index, value in enumerate(entries)
+                        if value["Key"] == marker and value["VersionId"] == version
+                    )
+                except StopIteration:
+                    fail("InvalidPaginationMarker")
             chunk = entries[start : start + 1000]
             result = {
                 "Versions": [v for v in chunk if not v.get("DeleteMarker")],
@@ -150,21 +161,28 @@ if tool == "aws":
                 "IsTruncated": start + len(chunk) < len(entries),
             }
             if result["IsTruncated"]:
-                result["NextKeyMarker"] = str(start + len(chunk))
-                result["NextVersionIdMarker"] = "next"
+                result["NextKeyMarker"] = chunk[-1]["Key"]
+                result["NextVersionIdMarker"] = chunk[-1]["VersionId"]
             emit(result)
         if operation == "list-objects-v2":
             entries = list(bucket["objects"])
             if name == scenario["state_bucket"]:
                 entries += list(scenario["remote"])
-            start = int(option("--continuation-token", "0"))
-            chunk = sorted(set(entries))[start : start + 1000]
+            entries = sorted(set(entries))
+            start = 0
+            marker = option("--continuation-token")
+            if marker is not None:
+                try:
+                    start = entries.index(marker) + 1
+                except ValueError:
+                    fail("InvalidPaginationMarker")
+            chunk = entries[start : start + 1000]
             result = {
                 "Contents": [{"Key": key} for key in chunk],
-                "IsTruncated": start + len(chunk) < len(set(entries)),
+                "IsTruncated": start + len(chunk) < len(entries),
             }
             if result["IsTruncated"]:
-                result["NextContinuationToken"] = str(start + len(chunk))
+                result["NextContinuationToken"] = chunk[-1]
             emit(result)
         if operation == "delete-objects":
             payload = option("--delete")
