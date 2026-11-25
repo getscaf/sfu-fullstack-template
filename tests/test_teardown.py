@@ -737,6 +737,29 @@ class TeardownTests(unittest.TestCase):
         self.assertNotEqual(self.invoke().returncode, 0)
         self.assertFalse(self.destructive())
 
+    def test_missing_resource_inventory_stops_before_any_deletion(self):
+        pristine = json.loads(json.dumps(self.fixture))
+        incomplete = state()
+        incomplete.pop("resources")
+        for location in ("sandbox", "staging", "bootstrap"):
+            with self.subTest(location=location):
+                self.fixture = json.loads(json.dumps(pristine))
+                if location == "bootstrap":
+                    self.fixture["bootstrap"] = incomplete
+                else:
+                    key = (
+                        "cms_demo.sandbox.json"
+                        if location == "sandbox"
+                        else "cms-demo.staging.json"
+                    )
+                    self.fixture["remote"][key] = incomplete
+                self.persist()
+                result = self.invoke()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Unsupported/corrupt state", result.stderr)
+                self.assertFalse(self.destructive())
+                self.assertIn(self.bucket, self.current()["buckets"])
+
     def test_elb_warning_allows_verified_teardown_completion(self):
         self.fixture["diagnostics"] = {"apply": [ELB_WARNING]}
         self.persist()
@@ -1010,6 +1033,26 @@ class TeardownRunnerTests(unittest.TestCase):
                 HELPER.run_tofu_ui(
                     [*command, "apply", "-json", str(path / "plan")], "probe apply", 30
                 )
+                HELPER.run_tofu_ui(
+                    [
+                        *command,
+                        "plan",
+                        "-destroy",
+                        "-json",
+                        "-out=" + str(path / "destroy"),
+                    ],
+                    "probe destroy plan",
+                    30,
+                )
+                HELPER.run_tofu_ui(
+                    [*command, "apply", "-json", str(path / "destroy")],
+                    "probe destroy",
+                    30,
+                )
+            empty = HELPER.decode_state(
+                (path / "terraform.tfstate").read_text(), "native empty state"
+            )
+            self.assertEqual(HELPER.resources(empty, "native empty state"), [])
             self.assertIn("terraform_data.probe", output.getvalue())
             self.assertNotIn("SENSITIVE_TEST_PAYLOAD", output.getvalue())
 

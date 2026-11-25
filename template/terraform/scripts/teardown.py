@@ -350,11 +350,11 @@ def resources(state, label):
     if (
         not isinstance(state, dict)
         or state.get("version") != 4
-        or not isinstance(state.get("resources", []), list)
+        or not isinstance(state.get("resources"), list)
     ):
         raise TeardownError("Unsupported/corrupt state for {}".format(label))
     found = []
-    for item in state.get("resources", []):
+    for item in state["resources"]:
         if not isinstance(item, dict):
             raise TeardownError("Invalid resource in {}".format(label))
         if item.get("mode") == "data":
@@ -736,7 +736,9 @@ class Teardown:
         return True
 
     def inspect_oidc(self):
-        items = resources(self.states.get("github", {"version": 4}), "github")
+        items = resources(
+            self.states.get("github", {"version": 4, "resources": []}), "github"
+        )
         providers = {
             r["values"].get("arn") or r["values"]["id"]
             for r in items
