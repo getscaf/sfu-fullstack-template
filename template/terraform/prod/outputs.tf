@@ -34,6 +34,7 @@ output "control_plane_nodes_private_ips" {
   value       = module.cluster.control_plane_nodes_private_ips
 }
 
+{% if copier__operating_system == "k3s" %}
 output "public_deploy_key" {
   description = "SSH public key for accessing EC2 instances during k3s bootstrap and cluster management"
   value       = module.cluster.public_deploy_key
@@ -44,6 +45,7 @@ output "private_deploy_key" {
   sensitive   = true
   value       = module.cluster.private_deploy_key
 }
+{% endif %}
 
 output "cloudfront_distribution_id" {
   description = "The CloudFront distribution ID"

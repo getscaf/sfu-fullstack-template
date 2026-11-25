@@ -1,8 +1,11 @@
+# Allow scheduling workloads on the control plane since we don't have a
+# separate control plane: drop the generated NoSchedule taint.
+apiVersion: v1alpha1
+kind: KubeNodeConfig
+taints:
+  $patch: delete
+---
 cluster:
-  # Allow scheduling work loads on the control plane since we don't have a
-  # separate control plane
-  allowSchedulingOnControlPlanes: true
-
   # Install Kubelet Serving Certificate Approver and metrics-server during
   # bootstrap
   extraManifests:
