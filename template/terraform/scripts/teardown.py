@@ -707,9 +707,9 @@ class Teardown:
                 key = obj["Key"]
                 if key in known:
                     continue
-                if key.endswith((".json", ".tfstate")):
-                    extra = dict(self.backend_config, key=key)
-                    self.states["extra:" + key] = self.read_remote(extra)
+                # Backend/workspace keys have no required filename suffix.
+                extra = dict(self.backend_config, key=key)
+                self.states["extra:" + key] = self.read_remote(extra)
                 self.keep.append("unclassified backend entry {}".format(key))
         selected = resources(self.states[self.environment], self.environment)
         self.check_ecr_ownership(selected)

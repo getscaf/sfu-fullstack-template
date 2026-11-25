@@ -348,6 +348,34 @@ class TeardownTests(unittest.TestCase):
         self.assertIn("ownership overlaps", result.stderr)
         self.assertFalse(self.destructive())
 
+    def test_suffixless_workspace_state_checks_ownership_before_cleanup(self):
+        pristine = json.loads(json.dumps(self.fixture))
+        for overlaps in (True, False):
+            with self.subTest(overlaps=overlaps):
+                self.fixture = json.loads(json.dumps(pristine))
+                other = (
+                    self.fixture["remote"]["cms_demo.sandbox.json"]["resources"][3]
+                    if overlaps
+                    else resource("aws_instance", "other", "i-other")
+                )
+                self.fixture["remote"]["env:/other/state"] = state(other)
+                self.persist()
+                result = self.invoke()
+                if overlaps:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("ownership overlaps", result.stderr)
+                    self.assertFalse(self.destructive())
+                    self.assertIn(self.repo, self.current()["repositories"])
+                else:
+                    self.assert_success(result)
+                    self.assertIn(
+                        "shared GitHub/bootstrap infrastructure retained", result.stdout
+                    )
+                    self.assertIn(self.bucket, self.current()["buckets"])
+                    self.assertTrue(
+                        self.current()["remote"]["env:/other/state"]["resources"]
+                    )
+
     def test_other_environment_preserves_shared_stacks(self):
         self.fixture["remote"]["cms-demo.staging.json"] = state(
             resource("aws_instance", "other", "i-other")

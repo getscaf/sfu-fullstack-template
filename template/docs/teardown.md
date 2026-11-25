@@ -114,6 +114,9 @@ retained. If an IAM role outside the GitHub stack trusts its managed GitHub OIDC
 provider, that stack and its backend are retained as well. Overlapping ECR
 ownership in another state stops teardown before nodes are stopped; resolve
 ownership separately rather than forcing repository deletion.
+Every additional backend object is inspected, including suffixless workspace
+keys. An unreadable or malformed object stops teardown before mutation because
+ownership cannot be established from it.
 
 Existing untagged Talos secrets use environment-only names. They are preserved
 when ownership cannot be established, and are listed in the result; infrastructure
