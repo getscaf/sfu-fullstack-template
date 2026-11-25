@@ -47,7 +47,7 @@
             kubectl
             kubernetes-helm
             kubeseal
-            nodejs_24
+            nodejs_26
             eslint
             prettier
             openssh
