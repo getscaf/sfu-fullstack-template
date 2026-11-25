@@ -693,6 +693,54 @@ class TeardownTests(unittest.TestCase):
         self.persist()
         self.assert_success(self.invoke())
 
+    def test_custom_bucket_keeps_terraform_deletion_policy(self):
+        original = json.dumps(self.fixture)
+        for module, name in (
+            ("module.cluster", "audit_archive"),
+            ("module.audit", "static_storage"),
+        ):
+            with self.subTest(module=module, name=name):
+                self.fixture = json.loads(original)
+                bucket = "custom-audit-archive"
+                item = resource(
+                    "aws_s3_bucket", name, bucket, bucket=bucket, force_destroy=False
+                )
+                item["module"] = module
+                self.fixture["remote"]["cms_demo.sandbox.json"]["resources"].append(
+                    item
+                )
+                self.fixture["buckets"][bucket] = {
+                    "versions": [],
+                    "objects": ["audit.log"],
+                }
+                self.persist()
+                result = self.invoke()
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("BucketNotEmpty", result.stderr)
+                current = self.current()
+                self.assertEqual(current["buckets"][bucket]["objects"], ["audit.log"])
+                self.assertFalse(
+                    any(
+                        "delete-objects" in call and bucket in call
+                        for call in current["calls"]
+                    )
+                )
+                self.assertIn(self.bucket, current["buckets"])
+
+    def test_shared_application_bucket_stops_before_node_shutdown(self):
+        self.fixture["remote"]["cms-demo.staging.json"] = state(
+            resource("aws_s3_bucket", "imported_media", self.static, bucket=self.static)
+        )
+        self.persist()
+        result = self.invoke()
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("S3 ownership overlaps", result.stderr)
+        self.assertFalse(self.destructive())
+        self.assertEqual(
+            self.current()["buckets"][self.static]["versions"],
+            self.fixture["buckets"][self.static]["versions"],
+        )
+
     def test_staging_uses_its_configured_dash_key(self):
         self.fixture["remote"]["cms-demo.staging.json"] = self.fixture["remote"].pop(
             "cms_demo.sandbox.json"

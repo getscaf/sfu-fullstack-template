@@ -638,11 +638,23 @@ class Teardown:
             item["values"].get("name") or item["values"]["id"],
         )
 
-    def check_ecr_ownership(self, selected):
+    def application_bucket(self, item):
+        return item["address"] in {
+            "module.cluster.aws_s3_bucket.static_storage",
+            "module.cluster.aws_s3_bucket.backups",
+        }
+
+    def bucket_identity(self, item):
+        return item["values"].get("bucket") or item["values"]["id"]
+
+    def check_storage_ownership(self, selected):
         selected_repos = {
             self.repository_identity(r)
             for r in selected
             if r["type"] == "aws_ecr_repository"
+        }
+        selected_buckets = {
+            self.bucket_identity(r) for r in selected if self.application_bucket(r)
         }
         for stack, state in self.states.items():
             if stack in (self.environment, "github", "bootstrap"):
@@ -655,6 +667,17 @@ class Teardown:
             if selected_repos & other:
                 raise TeardownError(
                     "ECR ownership overlaps with {}; resolve ownership before teardown".format(
+                        stack
+                    )
+                )
+            other_buckets = {
+                self.bucket_identity(r)
+                for r in resources(state, stack)
+                if r["type"] == "aws_s3_bucket"
+            }
+            if selected_buckets & other_buckets:
+                raise TeardownError(
+                    "S3 ownership overlaps with {}; resolve ownership before teardown".format(
                         stack
                     )
                 )
@@ -712,7 +735,7 @@ class Teardown:
                 self.states["extra:" + key] = self.read_remote(extra)
                 self.keep.append("unclassified backend entry {}".format(key))
         selected = resources(self.states[self.environment], self.environment)
-        self.check_ecr_ownership(selected)
+        self.check_storage_ownership(selected)
         for stack, state in self.states.items():
             items = resources(state, stack)
             self.validate_account(items)
@@ -823,7 +846,7 @@ class Teardown:
         if stack == "bootstrap":
             self.validate_bootstrap(fresh)
         if stack == self.environment:
-            self.check_ecr_ownership(resources(fresh, stack))
+            self.check_storage_ownership(resources(fresh, stack))
         self.states[stack] = fresh
         if stack == "github":
             # Keep the second guard: it checks freshly pulled ownership, not
@@ -1076,7 +1099,7 @@ class Teardown:
         for item in resources(self.states[self.environment], self.environment):
             attrs = item["values"]
             region = self.resource_region(item)
-            if item["type"] == "aws_s3_bucket":
+            if self.application_bucket(item):
                 self.empty_bucket(attrs.get("bucket") or attrs["id"], region)
             elif item["type"] == "aws_ecr_repository":
                 name = attrs.get("name") or attrs["id"]

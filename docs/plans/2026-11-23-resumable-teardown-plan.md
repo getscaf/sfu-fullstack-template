@@ -58,7 +58,7 @@ An available remote backend is sufficient to inspect and destroy the selected en
 
 Inspect other configured environment states and any additional state/workspace entries in the shared backend before deciding that shared resources can be removed. An unreadable or unclassified state cannot establish that shared infrastructure is unused. A confirmed absent state object is different from an inaccessible one.
 
-Compare selected ECR repository identifiers with other environment states. If the same repository is managed elsewhere, stop before node shutdown or deletion with a specific ownership-conflict error. If another state cannot be read and ECR ownership therefore cannot be established, also stop before deletion. Skipping only the helper deletion is insufficient because the subsequent Terraform destroy could still delete the repository. Resolving overlapping ownership is a separate migration.
+Compare selected ECR repository identifiers and generated application bucket identifiers with other environment states. If the same repository or application bucket is managed elsewhere, stop before node shutdown or deletion with a specific ownership-conflict error. If another state cannot be read and storage ownership therefore cannot be established, also stop before deletion. Skipping only the helper deletion is insufficient because the subsequent Terraform destroy could still delete the resource. Resolving overlapping ownership is a separate migration.
 
 If only shared GitHub/bootstrap infrastructure is in use elsewhere, allow the selected environment teardown to proceed and retain those shared stacks. Retention with continued environment cleanup also applies when state is readable and deletion ownership is established, but shared-stack usage cannot be classified conclusively. An unreadable state that prevents ownership checks follows the stop rule above, not this retention case. Report what was retained and why; do not report a complete full-stack teardown.
 
@@ -83,6 +83,8 @@ Use EC2 instance identifiers from the selected environment state to stop survivi
 This prevents template-managed application and backup processes from repopulating S3 during cleanup. Concurrent deploys and external writers must be stopped during teardown; do not build a distributed deployment-locking system in this fix. If storage continues to refill, fail clearly rather than looping indefinitely.
 
 ### 4. Clean application storage and ECR
+
+External S3 emptying is limited to `module.cluster.aws_s3_bucket.static_storage` and `module.cluster.aws_s3_bucket.backups`, using their actual state identifiers. Custom buckets retain their Terraform deletion policy; inclusion in an approved destroy plan does not authorize bypassing `force_destroy = false` by emptying them externally.
 
 For the selected state's application buckets (`static_storage` and `backups`), remove current objects, all object versions, and delete markers. Handle unversioned as well as versioned/suspended buckets. Paginate listing results, respect the 1,000-entry delete limit, inspect per-object errors, and verify emptiness. A missing bucket is complete; access denial is an error. Do not change application buckets to unconditional `force_destroy`.
 
