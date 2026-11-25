@@ -296,9 +296,77 @@ def decode_state(text, label):
     return state
 
 
+def hcl_source(text):
+    """Mask comments/heredocs and identify quoted spans before literal lookup."""
+    code, quoted = list(text), []
+    special = re.compile(r'/\*|//|#|"|<<-?([A-Za-z_][A-Za-z_0-9-]*)[ \t]*\r?\n')
+    position = 0
+    while True:
+        match = special.search(text, position)
+        if not match:
+            break
+        start = match.start()
+        if match[0] == '"':
+            string = re.match(r'"(?:[^"\\\r\n]|\\[^\r\n])*"', text[start:])
+            if not string:
+                raise TeardownError("Cannot resolve configuration: unterminated string")
+            token = string[0]
+            # A quote inside a template expression needs a full HCL parser.
+            # Reject it instead of treating its contents as configuration.
+            for expression in re.finditer(r"[$%]\{", token):
+                depth = 1
+                for char in token[expression.end() : -1]:
+                    if char == "{":
+                        depth += 1
+                    elif char == "}":
+                        depth -= 1
+                        if depth == 0:
+                            break
+                if depth:
+                    raise TeardownError(
+                        "Cannot resolve configuration: unsupported quoted template expression"
+                    )
+            position = start + len(token)
+            quoted.append((start, position))
+            continue
+        if match[0] == "/*":
+            end = text.find("*/", match.end())
+            if end < 0:
+                raise TeardownError(
+                    "Cannot resolve configuration: unterminated comment"
+                )
+            position = end + 2
+        elif match[1]:
+            indent = r"[ \t]*" if match[0].startswith("<<-") else ""
+            terminator = re.search(
+                r"(?m)^" + indent + re.escape(match[1]) + r"[ \t]*\r?$",
+                text[match.end() :],
+            )
+            if not terminator:
+                raise TeardownError(
+                    "Cannot resolve configuration: unterminated heredoc"
+                )
+            position = match.end() + terminator.end()
+        else:
+            end = text.find("\n", match.end())
+            position = len(text) if end < 0 else end
+        code[start:position] = [
+            char if char in "\r\n" else " " for char in text[start:position]
+        ]
+    return "".join(code), quoted
+
+
 def literal(text, block, field, required=True):
     """Read a literal from the generated HCL shape; never evaluate HCL code."""
-    match = re.search(block + r"\s*\{", text)
+    text, quoted_spans = hcl_source(text)
+    matches = [
+        match
+        for match in re.finditer(block + r"\s*\{", text)
+        if not any(start <= match.start() < end for start, end in quoted_spans)
+    ]
+    if len(matches) > 1:
+        raise TeardownError("Cannot resolve configuration: ambiguous literal block")
+    match = matches[0] if matches else None
     value = None
     if match:
         # Stop at the block boundary, allowing nested policy JSON/maps after
@@ -327,14 +395,22 @@ def literal(text, block, field, required=True):
                     break
             elif depth == 1:
                 body.append(char)
-        entry = re.search(
+        if depth:
+            raise TeardownError(
+                "Cannot resolve configuration: unterminated literal block"
+            )
+        entries = re.findall(
             r"(?m)^\s*"
             + re.escape(field)
             + r'\s*=\s*("(?:[^"\\]|\\.)*")\s*(?://.*|#.*)?$',
             "".join(body),
         )
-        if entry:
-            value = decode(entry[1], field)
+        if len(entries) > 1:
+            raise TeardownError(
+                "Cannot resolve configuration: ambiguous literal attribute"
+            )
+        if entries:
+            value = decode(entries[0], field)
             if "${" in value or "%{" in value:
                 value = None
     if value is None and required:

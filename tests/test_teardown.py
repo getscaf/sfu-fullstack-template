@@ -741,6 +741,32 @@ class TeardownTests(unittest.TestCase):
             if "dynamodb" in call or ("s3api" in call and self.bucket in call):
                 self.assertEqual(call[call.index("--region") + 1], backend_region)
 
+    def test_commented_region_cannot_redirect_secret_cleanup(self):
+        path = self.project / "terraform/modules/global_variables/main.tf"
+        path.write_text(
+            '/*\noutput "aws_region" {\n  value = "us-west-2"\n}\n*/\n'
+            + path.read_text()
+        )
+        for item in self.fixture["remote"]["cms_demo.sandbox.json"]["resources"]:
+            if item["type"] == "aws_s3_bucket":
+                item["instances"][0]["attributes"]["region"] = "us-east-1"
+        name = "cms_demo_sandbox_kubeconfig"
+        self.fixture["secrets_by_region"] = {
+            region: {
+                name: {
+                    "ARN": "arn:aws:secretsmanager:{}:{}:secret:{}-abc123".format(
+                        region, ACCOUNT, name
+                    )
+                }
+            }
+            for region in ("us-east-1", "us-west-2")
+        }
+        protected = self.fixture["secrets_by_region"]["us-west-2"].copy()
+        self.persist()
+        self.assert_success(self.invoke())
+        self.assertEqual(self.current()["secrets_by_region"]["us-east-1"], {})
+        self.assertEqual(self.current()["secrets_by_region"]["us-west-2"], protected)
+
     def test_custom_bucket_keeps_terraform_deletion_policy(self):
         original = json.dumps(self.fixture)
         for module, name in (
@@ -954,6 +980,45 @@ class TeardownTests(unittest.TestCase):
 
 
 class TeardownRunnerTests(unittest.TestCase):
+    def test_ambiguous_or_unsupported_hcl_is_rejected(self):
+        live = 'output "aws_region" {\n  value = "eu-west-1"\n}\n'
+        for text in (
+            live + live,
+            'output "aws_region" {\n value = "a"\n value = "b"\n}\n',
+            "/* unclosed comment\n" + live,
+            'output "description" { value = <<EOF\n' + live,
+            'output "description" { value = "unclosed\n' + live,
+            'output "description" { value = "${jsonencode({a = "x"})}" }\n' + live,
+        ):
+            with self.subTest(text=text):
+                with self.assertRaises(HELPER.TeardownError):
+                    HELPER.literal(text, r'output\s+"aws_region"', "value")
+
+    def test_literal_discovery_ignores_comments_and_quoted_content(self):
+        old = 'output "aws_region" {\n  value = "old"\n}\n'
+        live = 'output "aws_region" {\n  value = "eu-west-1"\n}\n'
+        for decoy in (
+            "/*\n" + old + "*/\n",
+            "\n".join("# " + line for line in old.splitlines()) + "\n",
+            "\n".join("// " + line for line in old.splitlines()) + "\n",
+            'output "description" {\n  value = <<-DOC\n' + old + "DOC\n}\n",
+            'output "description" {\n  value = ' + json.dumps(old) + "\n}\n",
+        ):
+            with self.subTest(decoy=decoy):
+                self.assertEqual(
+                    HELPER.literal(decoy + live, r'output\s+"aws_region"', "value"),
+                    "eu-west-1",
+                )
+        body = 'output "aws_region" {\n/*\n  value = "old"\n*/\n  value = "eu-west-1" # current\n}\n'
+        self.assertEqual(
+            HELPER.literal(body, r'output\s+"aws_region"', "value"), "eu-west-1"
+        )
+        url = 'backend "s3" {\n bucket = "https://example.test/#fragment"\n}\n'
+        self.assertEqual(
+            HELPER.literal(url, r'backend\s+"s3"', "bucket"),
+            "https://example.test/#fragment",
+        )
+
     def failure(self, *codes):
         text = "\n".join("api error {}: failed".format(code) for code in codes)
         return HELPER.CommandError(
