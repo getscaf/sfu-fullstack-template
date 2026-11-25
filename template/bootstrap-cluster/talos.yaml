@@ -10,24 +10,42 @@ tasks:
       vars: [ENV]
     cmds:
       - task: generate_configs
+        vars: {ENV: {{ "'{{.ENV}}'" }}}
       - task: set_node_ips
+        vars: {ENV: {{ "'{{.ENV}}'" }}}
       - task: store_controlplane_config
+        vars: {ENV: {{ "'{{.ENV}}'" }}}
       - task: store_talosconfig
+        vars: {ENV: {{ "'{{.ENV}}'" }}}
       - task: apply_talos_config
+        vars: {ENV: {{ "'{{.ENV}}'" }}}
       - sleep 30
       - task: bootstrap_kubernetes
+        vars: {ENV: {{ "'{{.ENV}}'" }}}
       - sleep 30
       - task: generate_kubeconfig
+        vars: {ENV: {{ "'{{.ENV}}'" }}}
       - task: store_kubeconfig
+        vars: {ENV: {{ "'{{.ENV}}'" }}}
       - task: upgrade_talos
+        vars: {ENV: {{ "'{{.ENV}}'" }}}
       - task: enable_ecr_credential_helper
+        vars: {ENV: {{ "'{{.ENV}}'" }}}
   generate_configs:
     desc: |
       Generate the initial Talos configuration files for the control plane
       and Talos nodes.
+    requires:
+      vars: [ENV, KUBERNETES_VERSION]
+    vars:
+      CLUSTER_NAME:
+        sh: yq -r '.CLUSTER_NAME' {{ '{{.ENV}}' }}/.env
+      CONTROL_PLANE_ENDPOINT:
+        sh: yq -r '.CONTROL_PLANE_ENDPOINT' {{ '{{.ENV}}' }}/.env
     cmds:
       - |
         talosctl gen config {{ '{{.CLUSTER_NAME}}' }} {{ '{{.CONTROL_PLANE_ENDPOINT}}' }} \
+          --kubernetes-version {{ '{{.KUBERNETES_VERSION}}' }} \
           --output-types controlplane,talosconfig \
           --output ./{{ '{{.ENV}}' }}/ \
           --config-patch @patches/patch-machine.yaml \
@@ -36,17 +54,25 @@ tasks:
           --with-docs=false
   set_node_ips:
     desc: |
-      Set the endpoints in the Talos configuration using the public IPs of
-      the control plane nodes from Terraform output.
+      Set the endpoints in the Talos configuration to the public IPs of the
+      control plane nodes, and the nodes to their private IPs, from Terraform
+      output. Talos forwards requests from an endpoint to the target node.
+      Forwarding to a node's public IP is blocked by the security group, so
+      the nodes use their private IPs.
     vars:
       EC2_HOSTS:
         sh: |
-          tofu -chdir={{ '{{.TOFU_DIR}}' }}/{{ '{{.ENV}}' }} \
+          tofu -chdir=../terraform/{{ '{{.ENV}}' }} \
             output -raw control_plane_nodes_public_ips | tr ',' ' '
+      EC2_PRIVATE_IPS:
+        sh: |
+          tofu -chdir=../terraform/{{ '{{.ENV}}' }} \
+            output -raw control_plane_nodes_private_ips | tr ',' ' '
     requires:
       vars: [ENV]
     cmds:
       - talosctl config endpoint {{ '{{.EC2_HOSTS}}' }}
+      - talosctl config node {{ '{{.EC2_PRIVATE_IPS}}' }}
   apply_talos_config:
     desc: |
       Apply the Talos configuration to all nodes in the control plane.
@@ -64,7 +90,7 @@ tasks:
       Bootstrap the Kubernetes cluster on the first control plane node.
     vars:
       FIRST_NODE:
-        sh: yq -r '.contexts[].endpoints[0]' {{ '{{.ENV}}' }}/talosconfig
+        sh: yq -r '.contexts[].nodes[0]' {{ '{{.ENV}}' }}/talosconfig
     cmds:
       - talosctl bootstrap --nodes {{ '{{.FIRST_NODE}}' }}
   generate_kubeconfig:
@@ -73,25 +99,34 @@ tasks:
       Talos.
     vars:
       FIRST_NODE:
-        sh: yq -r '.contexts[].endpoints[0]' {{ '{{.ENV}}' }}/talosconfig
+        sh: yq -r '.contexts[].nodes[0]' {{ '{{.ENV}}' }}/talosconfig
     cmds:
       - talosctl kubeconfig $KUBECONFIG --nodes {{ '{{.FIRST_NODE}}' }} --force
   upgrade_talos:
     desc: |
-      Upgrade Talos on all control plane nodes to a specified version.
+      Reinstall Talos on all control plane nodes from the Image Factory
+      installer to add the schematic's system extensions. Each node keeps
+      the Talos version it booted with.
+    requires:
+      vars: [TALOS_FACTORY_INSTALLER]
     cmds:
       - task: health
+        vars: {ENV: {{ "'{{.ENV}}'" }}}
       - |
-        for node in $(yq -r '.contexts[].endpoints[]' $TALOSCONFIG); do
-          talosctl upgrade --nodes $node --image {{ '{{.TALOS_FACTORY_IMAGE}}' }}; \
+        for node in $(yq -r '.contexts[].nodes[]' $TALOSCONFIG); do
+          tag=$(talosctl version --nodes $node --short | awk '/Tag:/ {print $2}'); \
+          if [ -z "$tag" ]; then echo "Could not read the Talos version of $node"; exit 1; fi; \
+          echo "Installing {{ '{{.TALOS_FACTORY_INSTALLER}}' }}:$tag on $node"; \
+          talosctl upgrade --nodes $node --image {{ '{{.TALOS_FACTORY_INSTALLER}}' }}:$tag; \
         done
   enable_ecr_credential_helper:
     desc: |
       Enable the ECR credential helper on all control plane nodes.
     cmds:
       - task: health
+        vars: {ENV: {{ "'{{.ENV}}'" }}}
       - |
-        for node in $(yq -r '.contexts[].endpoints[]' $TALOSCONFIG); do
+        for node in $(yq -r '.contexts[].nodes[]' $TALOSCONFIG); do
           talosctl patch mc \
             --nodes $node \
             --patch @patches/patch-ecr-credential-helper.yaml; \
@@ -104,7 +139,7 @@ tasks:
     cmds:
       - |
         aws secretsmanager create-secret \
-          --name "{{ '{{.ENV}}' }}_talosconfig_yaml" \
+          --name "{{ copier__project_slug }}_{{ '{{.ENV}}' }}_talosconfig_yaml" \
           --secret-string "$(base64 -w0 $TALOSCONFIG)"
   store_controlplane_config:
     desc: |
@@ -115,7 +150,7 @@ tasks:
     cmds:
       - |
         aws secretsmanager create-secret \
-          --name "{{ '{{.ENV}}' }}_talos_controlplane_yaml" \
+          --name "{{ copier__project_slug }}_{{ '{{.ENV}}' }}_talos_controlplane_yaml" \
           --secret-string "$(base64 -w0 ./{{ '{{.ENV}}' }}/controlplane.yaml)"
   store_kubeconfig:
     desc: |
@@ -125,39 +160,46 @@ tasks:
     cmds:
       - |
         aws secretsmanager create-secret \
-          --name "{{ '{{.ENV}}' }}_kubeconfig" \
+          --name "{{ copier__project_slug }}_{{ '{{.ENV}}' }}_kubeconfig" \
           --secret-string "$(base64 -w0 $KUBECONFIG)"
   health:
     desc: |
-      Check the health of the Talos cluster.
+      Check the health of the Talos cluster. The checks run from this
+      machine, because nodes can't reach the Kubernetes API through the load
+      balancer's public address.
     vars:
       FIRST_NODE:
-        sh: yq -r '.contexts[].endpoints[0]' {{ '{{.ENV}}' }}/talosconfig
+        sh: yq -r '.contexts[].nodes[0]' {{ '{{.ENV}}' }}/talosconfig
     cmds:
-      - talosctl health --nodes {{ '{{.FIRST_NODE}}' }}
+      - talosctl health --server=false --nodes {{ '{{.FIRST_NODE}}' }}
   services:
     desc: |
       Check service status on all notes.
     cmds:
       - |
-        for node in $(yq -r '.contexts[].endpoints[]' $TALOSCONFIG); do
+        for node in $(yq -r '.contexts[].nodes[]' $TALOSCONFIG); do
           talosctl service --nodes $node;
         done
   delete_all_secrets:
     desc: |
-      Delete all related secrets from AWS Secrets Manager.
+      Delete all related secrets from AWS Secrets Manager. A secret that
+      doesn't exist is skipped. Any other error stops the teardown.
     requires:
       vars: [ENV]
     cmds:
       - |
-        aws secretsmanager delete-secret \
-          --secret-id "{{ '{{.ENV}}' }}_kubeconfig" --force-delete-without-recovery
-      - |
-        aws secretsmanager delete-secret \
-          --secret-id "{{ '{{.ENV}}' }}_talosconfig_yaml" --force-delete-without-recovery
-      - |
-        aws secretsmanager delete-secret \
-          --secret-id "{{ '{{.ENV}}' }}_talos_controlplane_yaml" --force-delete-without-recovery
+        for name in kubeconfig talosconfig_yaml talos_controlplane_yaml; do
+          id="{{ copier__project_slug }}_{{ '{{.ENV}}' }}_$name"
+          if err=$(aws secretsmanager delete-secret --secret-id "$id" \
+              --force-delete-without-recovery 2>&1 >/dev/null); then
+            echo "Deleted $id"
+          elif printf '%s' "$err" | grep -q ResourceNotFoundException; then
+            echo "Skipped $id (not found)"
+          else
+            printf '%s\n' "$err" >&2
+            exit 1
+          fi
+        done
   reset_config:
     desc: |
       Remove all config files and delete secrets in AWS Secrets Manager
@@ -165,6 +207,7 @@ tasks:
       vars: [ENV]
     cmds:
       - task: delete_all_secrets
+        vars: {ENV: {{ "'{{.ENV}}'" }}}
       - cd {{ '{{.ENV}}' }} && rm -f controlplane.yaml kubeconfig talosconfig
   kubeconfig:
     desc: |
@@ -177,6 +220,7 @@ tasks:
     silent: true
     cmds:
       - task: generate_kubeconfig
+        vars: {ENV: {{ "'{{.ENV}}'" }}}
       - echo "export KUBECONFIG=$(pwd)/{{ '{{.ENV}}' }}/kubeconfig"
   fetch_config:
     desc: |
@@ -187,16 +231,16 @@ tasks:
     cmds:
       - |
         aws secretsmanager get-secret-value \
-          --secret-id "{{ '{{.ENV}}' }}_kubeconfig" | \
+          --secret-id "{{ copier__project_slug }}_{{ '{{.ENV}}' }}_kubeconfig" | \
           yq ".SecretString" | tr -d '"' | \
           base64 -d > ./{{ '{{.ENV}}' }}/kubeconfig
       - |
         aws secretsmanager get-secret-value \
-          --secret-id "{{ '{{.ENV}}' }}_talosconfig_yaml" | \
+          --secret-id "{{ copier__project_slug }}_{{ '{{.ENV}}' }}_talosconfig_yaml" | \
           yq ".SecretString" | tr -d '"' | \
           base64 -d > ./{{ '{{.ENV}}' }}/talosconfig
       - |
         aws secretsmanager get-secret-value \
-          --secret-id "{{ '{{.ENV}}' }}_talos_controlplane_yaml" | \
+          --secret-id "{{ copier__project_slug }}_{{ '{{.ENV}}' }}_talos_controlplane_yaml" | \
           yq ".SecretString" | tr -d '"' | \
           base64 -d > ./{{ '{{.ENV}}' }}/controlplane.yaml

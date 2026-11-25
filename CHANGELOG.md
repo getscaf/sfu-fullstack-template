@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.18.5](https://github.com/getscaf/sfu-fullstack-template/compare/v1.18.4...v1.18.5) (2026-11-25)
+
+### Dependencies
+
+* **deps:** update backend-runtime pins ([#222](https://github.com/getscaf/sfu-fullstack-template/issues/222)) ([f7f223f](https://github.com/getscaf/sfu-fullstack-template/commit/f7f223fd26489bd4ee23378d0337c12574373366))
+
+## [1.18.4](https://github.com/getscaf/sfu-fullstack-template/compare/v1.18.3...v1.18.4) (2026-11-25)
+
+### Dependencies
+
+* **deps:** update frontend-runtime pins ([#221](https://github.com/getscaf/sfu-fullstack-template/issues/221)) ([dd7606b](https://github.com/getscaf/sfu-fullstack-template/commit/dd7606b870f2d0495cf075a7fd4a6bbfd349115a))
+
+## [1.18.3](https://github.com/getscaf/sfu-fullstack-template/compare/v1.18.2...v1.18.3) (2026-11-25)
+
+### Dependencies
+
+* **deps:** update argocd helm charts to latest versions ([#212](https://github.com/getscaf/sfu-fullstack-template/issues/212)) ([665b231](https://github.com/getscaf/sfu-fullstack-template/commit/665b231a46b343d7d78367231cbba1766f49fae1))
+
 ## [1.18.2](https://github.com/getscaf/sfu-fullstack-template/compare/v1.18.1...v1.18.2) (2026-11-23)
 
 ### Bug Fixes
