@@ -748,8 +748,13 @@ class Teardown:
         selected_buckets = {
             self.bucket_identity(r) for r in selected if self.application_bucket(r)
         }
+        backend_buckets = {backend["bucket"] for backend in self.backends.values()}
+        if selected_buckets & backend_buckets:
+            raise TeardownError(
+                "Application S3 ownership overlaps with a configured state backend; resolve ownership before teardown"
+            )
         for stack, state in self.states.items():
-            if stack in (self.environment, "github", "bootstrap"):
+            if stack == self.environment:
                 continue
             other = {
                 self.repository_identity(r)

@@ -915,6 +915,54 @@ class TeardownTests(unittest.TestCase):
             self.fixture["buckets"][self.static]["versions"],
         )
 
+    def test_application_cleanup_cannot_target_state_or_github_buckets(self):
+        original = json.dumps(self.fixture)
+        for owner in ("bootstrap", "configured_without_local_state", "github"):
+            with self.subTest(owner=owner):
+                self.fixture = json.loads(original)
+                target = (
+                    self.bucket if owner == "bootstrap" else "protected-shared-bucket"
+                )
+                if target not in self.fixture["buckets"]:
+                    self.fixture["buckets"][target] = {"versions": [], "objects": []}
+                item = self.fixture["remote"]["cms_demo.sandbox.json"]["resources"][1]
+                item["instances"][0]["attributes"].update(id=target, bucket=target)
+                metadata = (
+                    self.project / "terraform/staging/.terraform/terraform.tfstate"
+                )
+                if metadata.exists():
+                    metadata.unlink()
+                if owner == "configured_without_local_state":
+                    metadata.parent.mkdir(exist_ok=True)
+                    metadata.write_text(
+                        json.dumps(
+                            {
+                                "backend": {
+                                    "type": "s3",
+                                    "config": {
+                                        "bucket": target,
+                                        "key": self.fixture["keys"]["staging"],
+                                        "region": "us-east-1",
+                                        "dynamodb_table": self.bucket,
+                                    },
+                                }
+                            }
+                        )
+                    )
+                elif owner == "github":
+                    self.fixture["remote"]["cms-demo.github.json"]["resources"].append(
+                        resource("aws_s3_bucket", "artifacts", target, bucket=target)
+                    )
+                self.persist()
+                if owner == "configured_without_local_state":
+                    (self.project / "terraform/bootstrap/terraform.tfstate").unlink()
+                before = json.loads(json.dumps(self.fixture["remote"]))
+                result = self.invoke()
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("ownership overlaps", result.stderr)
+                self.assertFalse(self.destructive())
+                self.assertEqual(self.current()["remote"], before)
+
     def test_staging_uses_its_configured_dash_key(self):
         self.fixture["remote"]["cms-demo.staging.json"] = self.fixture["remote"].pop(
             "cms_demo.sandbox.json"
