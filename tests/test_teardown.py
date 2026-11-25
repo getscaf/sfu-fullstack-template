@@ -202,6 +202,9 @@ class TeardownTests(unittest.TestCase):
                     "terraform_state",
                     self.bucket,
                     name=self.bucket,
+                    arn="arn:aws:dynamodb:us-east-1:{}:table/{}".format(
+                        ACCOUNT, self.bucket
+                    ),
                 ),
             ),
         }
@@ -761,6 +764,18 @@ class TeardownTests(unittest.TestCase):
         backend_region = "eu-west-1"
         application_region = "us-east-1"
         self.fixture["buckets"][self.bucket]["region"] = backend_region
+        self.fixture["bootstrap"]["resources"][1]["instances"][0]["attributes"][
+            "arn"
+        ] = "arn:aws:dynamodb:{}:{}:table/{}".format(
+            backend_region, ACCOUNT, self.bucket
+        )
+        bootstrap = self.project / "terraform/bootstrap/init.tf"
+        bootstrap.write_text(
+            bootstrap.read_text().replace(
+                "region = module.global_variables.aws_region",
+                'region = "{}"'.format(backend_region),
+            )
+        )
         for item in self.fixture["remote"]["cms_demo.sandbox.json"]["resources"]:
             if item["type"] == "aws_s3_bucket":
                 item["instances"][0]["attributes"]["region"] = application_region
@@ -804,6 +819,27 @@ class TeardownTests(unittest.TestCase):
                 self.assertEqual(call[call.index("--region") + 1], application_region)
             if "dynamodb" in call or ("s3api" in call and self.bucket in call):
                 self.assertEqual(call[call.index("--region") + 1], backend_region)
+
+    def test_bootstrap_table_identity_includes_region(self):
+        original = json.dumps(self.fixture)
+        for location in ("local", "refreshed", "plan", "missing"):
+            with self.subTest(location=location):
+                self.fixture = json.loads(original)
+                values = self.fixture["bootstrap"]["resources"][1]["instances"][0][
+                    "attributes"
+                ]
+                if location == "local":
+                    values["arn"] = values["arn"].replace("us-east-1", "eu-west-1")
+                elif location == "missing":
+                    values.pop("arn")
+                else:
+                    self.fixture["bootstrap_" + location + "_region"] = "eu-west-1"
+                self.persist()
+                result = self.invoke()
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("bootstrap table", result.stderr)
+                self.assertFalse(self.destructive())
+                self.assertTrue(self.current()["table_exists"])
 
     def test_commented_region_cannot_redirect_secret_cleanup(self):
         path = self.project / "terraform/modules/global_variables/main.tf"

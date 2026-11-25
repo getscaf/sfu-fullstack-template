@@ -99,6 +99,14 @@ def state_for(stack):
     )
 
 
+def table_values(values, region):
+    if not region:
+        return values
+    parts = values["arn"].split(":")
+    parts[3] = region
+    return dict(values, arn=":".join(parts))
+
+
 def write_state(stack, state):
     if stack == "bootstrap":
         scenario["bootstrap"] = state
@@ -307,6 +315,14 @@ elif tool == "tofu":
                 }
         emit(outputs)
     if action == "state" and args[1] == "pull":
+        if stack == "bootstrap" and scenario.get("bootstrap_refreshed_region"):
+            state = json.loads(json.dumps(state))
+            for resource in state["resources"]:
+                if resource["type"] == "aws_dynamodb_table":
+                    instance = resource["instances"][0]
+                    instance["attributes"] = table_values(
+                        instance["attributes"], scenario["bootstrap_refreshed_region"]
+                    )
         emit(state)
     if action == "plan":
         if stack == "github" and scenario.get("github_error"):
@@ -327,6 +343,9 @@ elif tool == "tofu":
             remaining.append(resource)
         changes = []
         for resource in remaining:
+            before = resource["instances"][0]["attributes"]
+            if stack == "bootstrap" and resource["type"] == "aws_dynamodb_table":
+                before = table_values(before, scenario.get("bootstrap_plan_region"))
             address = ".".join(
                 filter(
                     None, [resource.get("module"), resource["type"], resource["name"]]
@@ -335,10 +354,11 @@ elif tool == "tofu":
             changes.append(
                 {
                     "address": address,
+                    "type": resource["type"],
                     "mode": "managed",
                     "change": {
                         "actions": ["delete"],
-                        "before": resource["instances"][0]["attributes"],
+                        "before": before,
                     },
                 }
             )

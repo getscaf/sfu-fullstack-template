@@ -682,18 +682,33 @@ class Teardown:
 
     def validate_bootstrap(self, state):
         for item in resources(state, "bootstrap"):
-            attrs = item["values"]
-            if item["type"] in ("aws_s3_bucket", "aws_s3_bucket_versioning"):
-                if (attrs.get("bucket") or attrs["id"]) != self.bucket:
-                    raise TeardownError(
-                        "Local bootstrap bucket does not match the configured backend"
-                    )
+            self.validate_bootstrap_resource(item["type"], item["values"])
+
+    def validate_bootstrap_resource(self, kind, attrs):
+        if kind in ("aws_s3_bucket", "aws_s3_bucket_versioning"):
+            if (attrs.get("bucket") or attrs["id"]) != self.bucket:
+                raise TeardownError(
+                    "Local bootstrap bucket does not match the configured backend"
+                )
+        if kind == "aws_dynamodb_table":
+            arn = attrs.get("arn")
+            parts = arn.split(":", 5) if isinstance(arn, str) else []
             if (
-                item["type"] == "aws_dynamodb_table"
-                and (attrs.get("name") or attrs["id"]) != self.table
+                attrs["id"] != self.table
+                or (attrs.get("name") or attrs["id"]) != self.table
+                or len(parts) != 6
+                or parts[0] != "arn"
+                or parts[2:]
+                != [
+                    "dynamodb",
+                    self.backend_region,
+                    self.account,
+                    "table/" + self.table,
+                ]
+                or attrs.get("region", self.backend_region) != self.backend_region
             ):
                 raise TeardownError(
-                    "Local bootstrap table does not match the configured backend"
+                    "Local bootstrap table does not match the configured backend account/region/name"
                 )
 
     def validate_account(self, items):
@@ -990,6 +1005,12 @@ class Teardown:
                             change["address"]
                         )
                     )
+                if stack == "bootstrap":
+                    if not change.get("type"):
+                        raise TeardownError(
+                            "Missing resource type in bootstrap destroy plan"
+                        )
+                    self.validate_bootstrap_resource(change["type"], action["before"])
             if apply:
                 self.tofu(stack, "apply", "-input=false", "-no-color", plan)
 
