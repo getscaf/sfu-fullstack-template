@@ -574,7 +574,7 @@ class TeardownTests(unittest.TestCase):
         self.assertNotEqual(self.invoke().returncode, 0)
         self.assertFalse(self.destructive())
 
-    def test_talos_legacy_secrets_are_retained_without_blocking(self):
+    def configure_legacy_talos_secrets(self):
         path = self.project / "bootstrap-cluster/Taskfile.yml"
         path.write_text(
             path.read_text()
@@ -598,11 +598,41 @@ class TeardownTests(unittest.TestCase):
                     ACCOUNT, name
                 )
             }
+
+    def test_talos_legacy_secrets_are_retained_without_blocking(self):
+        self.configure_legacy_talos_secrets()
         self.persist()
         result = self.invoke()
         self.assert_success(result)
         self.assertEqual(len(self.current()["secrets"]), 3)
         self.assertIn("Legacy secret preserved", result.stdout)
+
+    def test_bootstrap_recovery_reports_retained_talos_secrets(self):
+        self.configure_legacy_talos_secrets()
+        self.fixture["fail_apply"] = {"bootstrap": 1}
+        self.persist()
+        self.assertNotEqual(self.invoke().returncode, 0)
+        self.fixture = self.current()
+        self.assertNotIn(self.bucket, self.fixture["buckets"])
+        self.assertTrue(self.fixture["table_exists"])
+        self.fixture["calls"] = []
+        self.fixture["secrets"]["sandbox_talosconfig_yaml"]["Tags"] = [
+            {"Key": "application", "Value": "cms-demo"},
+            {"Key": "environment", "Value": "sandbox"},
+        ]
+        self.persist()
+        result = self.invoke()
+        self.assert_success(result)
+        for name in ("sandbox_kubeconfig", "sandbox_talos_controlplane_yaml"):
+            self.assertIn(
+                "Legacy secret preserved (ownership unverified): " + name, result.stdout
+            )
+        self.assertNotIn("delete secret:", result.stdout)
+        self.assertFalse(
+            any("delete-secret" in call for call in self.current()["calls"])
+        )
+        self.assertEqual(self.current()["secrets"], self.fixture["secrets"])
+        self.assertFalse(self.current()["table_exists"])
 
     def test_documented_update_preserves_customizations_and_finishes_legacy_failure(
         self,

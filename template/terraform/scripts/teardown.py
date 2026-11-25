@@ -1029,8 +1029,11 @@ class Teardown:
             return False
         items = resources(self.states["bootstrap"], "bootstrap")
         self.validate_account(items)
-        if not items:
+        if not items or self.os == "talos":
             self.inspect_secrets()
+            # Recovery only destroys bootstrap; discovery reports legacy secrets.
+            self.secrets.clear()
+        if not items:
             print(
                 "Teardown already complete for the known backend scope; bucket and table are absent."
             )
