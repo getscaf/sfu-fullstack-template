@@ -790,37 +790,11 @@ class Teardown:
                 self.keep_bootstrap.append(
                     "local bootstrap state does not track aws_dynamodb_table"
                 )
+        self.inspect_remote_states()
         if not self.backend_present:
             return self.prepare_bootstrap_recovery()
-        for stack, backend in self.backends.items():
-            self.states[stack] = self.read_remote(backend)
-        known = {b["key"] for b in self.backends.values() if b["bucket"] == self.bucket}
-        for page in self.pages(
-            "s3api",
-            "list-objects-v2",
-            "--bucket",
-            self.bucket,
-            "--expected-bucket-owner",
-            self.account,
-            region=self.backend_region,
-        ):
-            for obj in page.get("Contents", []):
-                key = obj["Key"]
-                if key in known:
-                    continue
-                # Backend/workspace keys have no required filename suffix.
-                extra = dict(self.backend_config, key=key)
-                self.states["extra:" + key] = self.read_remote(extra)
-                self.keep.append("unclassified backend entry {}".format(key))
         selected = resources(self.states[self.environment], self.environment)
         self.check_storage_ownership(selected)
-        for stack, state in self.states.items():
-            items = resources(state, stack)
-            self.validate_account(items)
-            if stack in (self.environment, "github", "bootstrap"):
-                continue
-            if items:
-                self.keep.append("active state {}".format(stack))
         if not self.keep:
             # Avoid initializing a GitHub stack already known to be shared.
             self.inspect_oidc()
@@ -835,6 +809,51 @@ class Teardown:
                 continue
             self.approve_stack(stack)
         return True
+
+    def inspect_remote_states(self):
+        buckets = {}
+        for stack, backend in self.backends.items():
+            if not self.backend_present:
+                if backend["bucket"] == self.bucket:
+                    # This bucket is confirmed absent; do not try to initialize it.
+                    self.states[stack] = {"version": 4, "resources": []}
+                    continue
+                if (backend.get("dynamodb_table"), backend["region"]) != (
+                    self.table,
+                    self.backend_region,
+                ):
+                    continue
+            self.states[stack] = self.read_remote(backend)
+            buckets.setdefault((backend["bucket"], backend["region"]), backend)
+        for (bucket, region), backend in buckets.items():
+            known = {b["key"] for b in self.backends.values() if b["bucket"] == bucket}
+            for page in self.pages(
+                "s3api",
+                "list-objects-v2",
+                "--bucket",
+                bucket,
+                "--expected-bucket-owner",
+                self.account,
+                region=region,
+            ):
+                for obj in page.get("Contents", []):
+                    key = obj["Key"]
+                    if key in known:
+                        continue
+                    extra = dict(backend, key=key)
+                    self.states["extra:" + bucket + "/" + key] = self.read_remote(extra)
+                    self.keep.append(
+                        "unclassified backend entry {}/{}".format(bucket, key)
+                    )
+        for stack, state in self.states.items():
+            items = resources(state, stack)
+            self.validate_account(items)
+            if stack in (self.environment, "bootstrap") or (
+                stack == "github" and self.backend_present
+            ):
+                continue
+            if items:
+                self.keep.append("active state {}".format(stack))
 
     def inspect_oidc(self):
         items = resources(
@@ -975,6 +994,13 @@ class Teardown:
                 self.tofu(stack, "apply", "-input=false", "-no-color", plan)
 
     def prepare_bootstrap_recovery(self):
+        if self.keep:
+            print(
+                "Backend bucket is absent; bootstrap retained: {}.".format(
+                    "; ".join(self.keep)
+                )
+            )
+            return False
         items = resources(self.states["bootstrap"], "bootstrap")
         self.validate_account(items)
         if not items:

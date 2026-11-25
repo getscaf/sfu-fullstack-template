@@ -481,6 +481,70 @@ class TeardownTests(unittest.TestCase):
         self.assertNotEqual(self.invoke().returncode, 0)
         self.assertFalse(self.destructive())
 
+    def test_recovery_checks_other_bucket_using_the_same_lock_table(self):
+        original = json.dumps(self.fixture)
+        other_bucket = "staging-state-elsewhere"
+        key = self.fixture["keys"]["staging"]
+        directory = self.project / "terraform/staging/.terraform"
+        directory.mkdir()
+        (directory / "terraform.tfstate").write_text(
+            json.dumps(
+                {
+                    "backend": {
+                        "type": "s3",
+                        "config": {
+                            "bucket": other_bucket,
+                            "key": key,
+                            "region": "us-east-1",
+                            "dynamodb_table": self.bucket,
+                        },
+                    }
+                }
+            )
+        )
+        for scenario in ("active", "workspace", "empty", "unreadable"):
+            with self.subTest(scenario=scenario):
+                self.fixture = json.loads(original)
+                self.fixture["buckets"].pop(self.bucket)
+                self.fixture["buckets"][other_bucket] = {
+                    "versions": [],
+                    "objects": [key],
+                }
+                self.fixture["remote"] = {key: state()}
+                if scenario == "active":
+                    self.fixture["remote"][key] = state(
+                        resource("aws_vpc", "vpc", "vpc-staging")
+                    )
+                elif scenario == "workspace":
+                    workspace = "env:/other/state"
+                    self.fixture["buckets"][other_bucket]["objects"].append(workspace)
+                    self.fixture["remote"][workspace] = state(
+                        resource("aws_vpc", "vpc", "vpc-workspace")
+                    )
+                elif scenario == "unreadable":
+                    self.fixture["errors"] = {"s3/cp": "AccessDenied"}
+                self.persist()
+                result = self.invoke()
+                current = self.current()
+                if scenario == "unreadable":
+                    self.assertNotEqual(result.returncode, 0, result.stdout)
+                    self.assertIn("AccessDenied", result.stderr)
+                else:
+                    self.assert_success(result)
+                if scenario == "empty":
+                    self.assertFalse(current["table_exists"])
+                else:
+                    self.assertTrue(current["table_exists"])
+                    self.assertFalse(self.destructive())
+                    if scenario != "unreadable":
+                        self.assertIn("bootstrap retained", result.stdout)
+                self.assertTrue(
+                    any(
+                        "s3://{}/{}".format(other_bucket, key) in call
+                        for call in current["calls"]
+                    )
+                )
+
     def test_missing_local_state_preserves_only_bootstrap(self):
         self.fixture["errors"] = {"dynamodb/describe-table": "AccessDenied"}
         self.persist()
