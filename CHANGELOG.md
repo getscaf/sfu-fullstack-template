@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.18.4](https://github.com/getscaf/sfu-fullstack-template/compare/v1.18.3...v1.18.4) (2026-11-25)
+
+### Dependencies
+
+* **deps:** update frontend-runtime pins ([#221](https://github.com/getscaf/sfu-fullstack-template/issues/221)) ([dd7606b](https://github.com/getscaf/sfu-fullstack-template/commit/dd7606b870f2d0495cf075a7fd4a6bbfd349115a))
+
 ## [1.18.3](https://github.com/getscaf/sfu-fullstack-template/compare/v1.18.2...v1.18.3) (2026-11-25)
 
 ### Dependencies
