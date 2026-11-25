@@ -110,6 +110,7 @@ def write_state(stack, state):
 
 
 if tool == "aws":
+    region = option("--region", "us-east-1")
     while args and args[0].startswith("--"):
         arg = args.pop(0)
         if arg in ("--region", "--profile", "--output"):
@@ -249,27 +250,28 @@ if tool == "aws":
             scenario["nodes"][identity] = "stopped"
             emit({})
     if service == "secretsmanager":
+        secrets = (
+            scenario["secrets_by_region"].setdefault(region, {})
+            if "secrets_by_region" in scenario
+            else scenario["secrets"]
+        )
         name = option("--secret-id")
         name = next(
-            (
-                k
-                for k, v in scenario["secrets"].items()
-                if k == name or v["ARN"] == name
-            ),
+            (k for k, v in secrets.items() if k == name or v["ARN"] == name),
             name,
         )
         if (
-            name not in scenario["secrets"]
+            name not in secrets
             and operation == "delete-secret"
             and "--force-delete-without-recovery" in args
         ):
             emit({})
-        if name not in scenario["secrets"]:
+        if name not in secrets:
             fail("ResourceNotFoundException")
         if operation == "describe-secret":
-            emit(scenario["secrets"][name])
+            emit(secrets[name])
         if operation == "delete-secret":
-            del scenario["secrets"][name]
+            del secrets[name]
             emit({})
     if service == "iam" and operation == "list-roles":
         start = int(option("--marker", "0"))

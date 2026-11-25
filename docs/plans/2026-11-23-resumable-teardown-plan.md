@@ -44,6 +44,8 @@ Keep Taskfiles as thin entry points for authentication and the existing environm
 
 Read JSON state snapshots into memory. Use the selected stack's initialized backend and the actual configured state locations for cross-environment checks. Support the generated configuration's literal backend settings and honor initialized backend overrides where present; reject settings that cannot be resolved reliably. Read other environments' state objects directly from S3 through the AWS CLI and parse their JSON in memory. Do not run `tofu init` or validate unrelated environment modules merely to inspect their state.
 
+Resolve the application region from the generated `global_variables` module's `aws_region` output. Secret discovery/deletion and resource-region fallbacks use that region; backend bucket and lock-table operations use the configured backend region. Backend overrides must not redirect application secret cleanup to a same-named secret in another region.
+
 Do not dump state, credentials, private keys, or raw subprocess payloads into console logs or repository files. Log resource addresses, identifiers, phase names, and useful error codes. Temporary request payloads, if required, must use a private temporary directory and be removed after use.
 
 For long-running OpenTofu operations, display a filtered JSON UI stream containing resource progress, elapsed time, and safe diagnostic summaries/locations. Ignore output values, provisioner logs, arbitrary diagnostic detail, and expression snippets; `state pull` and `show -json` remain private. Emit a 15-second heartbeat during quiet periods so slow CloudFront deletion is visibly running.

@@ -394,6 +394,7 @@ class Teardown:
         config = (self.terraform / "modules/global_variables/main.tf").read_text()
         self.account = literal(config, r'output\s+"account_id"', "value")
         self.application = literal(config, r'output\s+"application"', "value")
+        self.application_region = literal(config, r'output\s+"aws_region"', "value")
         github = (self.terraform / "github/oidc.tf").read_text()
         role = literal(
             github, r'resource\s+"aws_iam_role"\s+"github_oidc_role"', "name"
@@ -419,7 +420,7 @@ class Teardown:
             raise TeardownError(
                 "Multiple stacks point to the same state object; resolve backend configuration first"
             )
-        self.region = self.backend_config["region"]
+        self.backend_region = self.backend_config["region"]
         self.bucket = self.backend_config["bucket"]
         self.table = self.backend_config.get("dynamodb_table")
         if not self.table:
@@ -477,7 +478,7 @@ class Teardown:
             [
                 "aws",
                 "--region",
-                region or self.region,
+                region or self.application_region,
                 "--output",
                 "json",
                 "--no-cli-pager",
@@ -687,7 +688,7 @@ class Teardown:
             raise TeardownError(
                 "AWS caller account does not match project configuration"
             )
-        self.backend_present = self.bucket_exists(self.bucket, self.region)
+        self.backend_present = self.bucket_exists(self.bucket, self.backend_region)
         self.states["bootstrap"] = self.local_bootstrap(
             required=not self.backend_present
         )
@@ -725,6 +726,7 @@ class Teardown:
             self.bucket,
             "--expected-bucket-owner",
             self.account,
+            region=self.backend_region,
         ):
             for obj in page.get("Contents", []):
                 key = obj["Key"]
@@ -808,7 +810,11 @@ class Teardown:
         for name in names:
             try:
                 value = self.aws(
-                    "secretsmanager", "describe-secret", "--secret-id", name
+                    "secretsmanager",
+                    "describe-secret",
+                    "--secret-id",
+                    name,
+                    region=self.application_region,
                 )
             except CommandError as error:
                 if error.code == "ResourceNotFoundException":
@@ -911,7 +917,13 @@ class Teardown:
 
     def table_exists(self):
         try:
-            self.aws("dynamodb", "describe-table", "--table-name", self.table)
+            self.aws(
+                "dynamodb",
+                "describe-table",
+                "--table-name",
+                self.table,
+                region=self.backend_region,
+            )
         except CommandError as error:
             if error.code == "ResourceNotFoundException":
                 return False
@@ -919,7 +931,7 @@ class Teardown:
         return True
 
     def verify_backend_absent(self):
-        if self.bucket_exists(self.bucket, self.region) or self.table_exists():
+        if self.bucket_exists(self.bucket, self.backend_region) or self.table_exists():
             raise TeardownError(
                 "Backend resources still exist; teardown is not complete"
             )
@@ -927,9 +939,11 @@ class Teardown:
     def confirm(self):
         print(
             "Teardown {} in account {}, region {}".format(
-                self.environment, self.account, self.region
+                self.environment, self.account, self.application_region
             )
         )
+        if self.backend_region != self.application_region:
+            print("State backend region: {}".format(self.backend_region))
         for stack, addresses in self.approved.items():
             for address in sorted(addresses):
                 print("  delete {}: {}".format(stack, address))
@@ -969,7 +983,9 @@ class Teardown:
         if item["type"] == "aws_s3_bucket" and item["values"].get("region"):
             return item["values"]["region"]
         arn = item["values"].get("arn") or ""
-        return (arn.split(":")[3] if arn.startswith("arn:") else "") or self.region
+        return (
+            arn.split(":")[3] if arn.startswith("arn:") else ""
+        ) or self.application_region
 
     def stop_nodes(self):
         for item in resources(self.states[self.environment], self.environment):
@@ -1142,6 +1158,7 @@ class Teardown:
                     "--secret-id",
                     secret,
                     "--force-delete-without-recovery",
+                    region=self.application_region,
                 )
             except CommandError as error:
                 if error.code != "ResourceNotFoundException":
@@ -1198,7 +1215,7 @@ class Teardown:
                         raise TeardownError(
                             "Dependent state is not empty; backend preserved"
                         )
-                self.empty_bucket(self.bucket, self.region)
+                self.empty_bucket(self.bucket, self.backend_region)
                 self.destroy("bootstrap")
                 self.verify_backend_absent()
         else:

@@ -693,6 +693,54 @@ class TeardownTests(unittest.TestCase):
         self.persist()
         self.assert_success(self.invoke())
 
+    def test_backend_region_does_not_select_application_secrets(self):
+        backend_region = "eu-west-1"
+        application_region = "us-east-1"
+        self.fixture["buckets"][self.bucket]["region"] = backend_region
+        for item in self.fixture["remote"]["cms_demo.sandbox.json"]["resources"]:
+            if item["type"] == "aws_s3_bucket":
+                item["instances"][0]["attributes"]["region"] = application_region
+        for stack, key in self.fixture["keys"].items():
+            directory = self.project / "terraform" / stack / ".terraform"
+            directory.mkdir()
+            (directory / "terraform.tfstate").write_text(
+                json.dumps(
+                    {
+                        "backend": {
+                            "type": "s3",
+                            "config": {
+                                "bucket": self.bucket,
+                                "key": key,
+                                "region": backend_region,
+                                "dynamodb_table": self.bucket,
+                            },
+                        }
+                    }
+                )
+            )
+        name = "cms_demo_sandbox_kubeconfig"
+        self.fixture["secrets_by_region"] = {
+            region: {
+                name: {
+                    "ARN": "arn:aws:secretsmanager:{}:{}:secret:{}-abc123".format(
+                        region, ACCOUNT, name
+                    )
+                }
+            }
+            for region in (backend_region, application_region)
+        }
+        protected = self.fixture["secrets_by_region"][backend_region].copy()
+        self.persist()
+        self.assert_success(self.invoke())
+        current = self.current()
+        self.assertEqual(current["secrets_by_region"][application_region], {})
+        self.assertEqual(current["secrets_by_region"][backend_region], protected)
+        for call in current["calls"]:
+            if "secretsmanager" in call:
+                self.assertEqual(call[call.index("--region") + 1], application_region)
+            if "dynamodb" in call or ("s3api" in call and self.bucket in call):
+                self.assertEqual(call[call.index("--region") + 1], backend_region)
+
     def test_custom_bucket_keeps_terraform_deletion_policy(self):
         original = json.dumps(self.fixture)
         for module, name in (
