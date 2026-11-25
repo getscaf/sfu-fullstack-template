@@ -505,6 +505,7 @@ class Teardown:
             raise TeardownError(
                 "Select the default workspace; additional workspaces are retained, not guessed"
             )
+        self.phase = "preflight"
         self.states = {}
         self.approved = {}
         self.keep = []
@@ -1126,6 +1127,8 @@ class Teardown:
             region = self.resource_region(item)
             deadline = time.monotonic() + 300
             requested = False
+            observed = None
+            print("Checking node {} in {}".format(identity, region), flush=True)
             while True:
                 try:
                     response = self.aws(
@@ -1137,6 +1140,9 @@ class Teardown:
                     )
                 except CommandError as error:
                     if error.code == "InvalidInstanceID.NotFound":
+                        print(
+                            "Node {} in {}: absent".format(identity, region), flush=True
+                        )
                         break
                     raise
                 instances = [
@@ -1144,12 +1150,15 @@ class Teardown:
                     for reservation in response.get("Reservations", [])
                     for i in reservation.get("Instances", [])
                 ]
-                if not instances or instances[0]["State"]["Name"] in (
-                    "stopped",
-                    "terminated",
-                ):
+                state = instances[0]["State"]["Name"] if instances else "absent"
+                if state != observed:
+                    print(
+                        "Node {} in {}: {}".format(identity, region, state), flush=True
+                    )
+                    observed = state
+                if state in ("absent", "stopped", "terminated"):
                     break
-                if not requested and instances[0]["State"]["Name"] not in (
+                if not requested and state not in (
                     "stopping",
                     "shutting-down",
                 ):
@@ -1298,6 +1307,7 @@ class Teardown:
     def destroy(self, stack):
         if stack not in self.approved:
             return
+        self.phase = "destroy {}".format(stack)
         print("Destroying remaining resources: {}".format(stack))
         delays = (30, 60, 120)
         deadline = None
@@ -1332,14 +1342,18 @@ class Teardown:
     def execute(self):
         if not self.inspect():
             return
+        self.phase = "confirmation"
         self.confirm()
         if self.backend_present:
+            self.phase = "node shutdown"
             self.stop_nodes()
+            self.phase = "storage and secret cleanup"
             self.cleanup()
             self.destroy(self.environment)
             if not self.keep:
                 self.destroy("github")
             if not self.keep and not self.keep_bootstrap:
+                self.phase = "backend finalization"
                 # Recheck remote state before permanently erasing its versions.
                 for backend in self.backends.values():
                     if resources(self.read_remote(backend), backend["key"]):
@@ -1348,9 +1362,11 @@ class Teardown:
                         )
                 self.empty_bucket(self.bucket, self.backend_region)
                 self.destroy("bootstrap")
+                self.phase = "backend verification"
                 self.verify_backend_absent()
         else:
             self.destroy("bootstrap")
+            self.phase = "backend verification"
             self.verify_backend_absent()
         if self.keep:
             print(
@@ -1373,23 +1389,27 @@ def main():
     parser.add_argument("--environment", required=True)
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[2]
+    teardown = None
     try:
         for executable in ("aws", "tofu"):
             if not shutil.which(executable):
                 raise TeardownError("{} is required".format(executable))
-        Teardown(root, args.environment).execute()
+        teardown = Teardown(root, args.environment)
+        teardown.execute()
     except (TeardownError, OSError) as error:
         # OSError filenames are safe; command output/state are never included.
         print(
-            "Teardown stopped: {}. Fix the problem and rerun the same command.".format(
-                error
+            "Teardown stopped during {}: {}. Fix the problem and rerun the same command.".format(
+                teardown.phase if teardown else "preflight", error
             ),
             file=sys.stderr,
         )
         return 1
     except KeyboardInterrupt:
         print(
-            "Teardown interrupted; rerun the same command to inspect remaining state.",
+            "Teardown interrupted during {}; rerun the same command to inspect remaining state.".format(
+                teardown.phase if teardown else "preflight"
+            ),
             file=sys.stderr,
         )
         return 1

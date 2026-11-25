@@ -255,6 +255,8 @@ if tool == "aws":
                 }
             )
         if operation == "stop-instances":
+            if scenario.get("stop_errors", {}).get(identity):
+                fail(scenario["stop_errors"][identity])
             scenario["nodes"][identity] = "stopped"
             emit({})
     if service == "secretsmanager":

@@ -484,6 +484,56 @@ class TeardownTests(unittest.TestCase):
         self.assertNotEqual(self.invoke().returncode, 0)
         self.assertFalse(self.destructive())
 
+    def test_failure_reports_stopped_nodes_and_active_phase(self):
+        original = json.dumps(self.fixture)
+        for failure in ("cleanup", "second_node"):
+            with self.subTest(failure=failure):
+                self.fixture = json.loads(original)
+                if failure == "cleanup":
+                    self.fixture["errors"] = {"s3api/delete-objects": "AccessDenied"}
+                    phase = "storage and secret cleanup"
+                else:
+                    self.fixture["nodes"]["i-two"] = "running"
+                    self.fixture["remote"]["cms_demo.sandbox.json"]["resources"].append(
+                        resource("aws_instance", "second_node", "i-two")
+                    )
+                    self.fixture["stop_errors"] = {"i-two": "AccessDenied"}
+                    phase = "node shutdown"
+                self.persist()
+                result = self.invoke()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Node i-one in us-east-1: stopped", result.stdout)
+                self.assertIn("Teardown stopped during " + phase, result.stderr)
+                self.assertEqual(self.current()["nodes"]["i-one"], "stopped")
+                if failure == "second_node":
+                    self.assertIn("Checking node i-two", result.stdout)
+                    self.assertEqual(self.current()["nodes"]["i-two"], "running")
+                self.assertFalse(
+                    any("start-instances" in c for c in self.current()["calls"])
+                )
+                self.assertFalse(
+                    any(
+                        c[0] == "tofu" and "apply" in c for c in self.current()["calls"]
+                    )
+                )
+                self.assertIn(self.bucket, self.current()["buckets"])
+
+    def test_node_shutdown_reports_terminal_and_absent_instances(self):
+        original = json.dumps(self.fixture)
+        for observed in ("stopped", "terminated", "absent"):
+            with self.subTest(observed=observed):
+                self.fixture = json.loads(original)
+                self.fixture["nodes"] = (
+                    {} if observed == "absent" else {"i-one": observed}
+                )
+                self.persist()
+                result = self.invoke()
+                self.assert_success(result)
+                self.assertIn("Node i-one in us-east-1: " + observed, result.stdout)
+                self.assertFalse(
+                    any("stop-instances" in c for c in self.current()["calls"])
+                )
+
     def test_recovery_checks_other_bucket_using_the_same_lock_table(self):
         original = json.dumps(self.fixture)
         other_bucket = "staging-state-elsewhere"

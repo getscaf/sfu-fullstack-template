@@ -94,6 +94,8 @@ Use EC2 instance identifiers from the selected environment state to stop survivi
 
 This prevents template-managed application and backup processes from repopulating S3 during cleanup. Concurrent deploys and external writers must be stopped during teardown; do not build a distributed deployment-locking system in this fix. If storage continues to refill, fail clearly rather than looping indefinitely.
 
+Print each node identifier, region and observed state as it changes, including stopped, terminated and confirmed absent nodes. Preserve those messages if a later node or cleanup operation fails, and include the active teardown phase in failure/interruption output. Do not restart stopped nodes automatically.
+
 ### 4. Clean application storage and ECR
 
 External S3 emptying is limited to `module.cluster.aws_s3_bucket.static_storage` and `module.cluster.aws_s3_bucket.backups`, using their actual state identifiers. Custom buckets retain their Terraform deletion policy; inclusion in an approved destroy plan does not authorize bypassing `force_destroy = false` by emptying them externally.
