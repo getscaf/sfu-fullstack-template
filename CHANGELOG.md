@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.18.5](https://github.com/getscaf/sfu-fullstack-template/compare/v1.18.4...v1.18.5) (2026-11-25)
+
+### Dependencies
+
+* **deps:** update backend-runtime pins ([#222](https://github.com/getscaf/sfu-fullstack-template/issues/222)) ([f7f223f](https://github.com/getscaf/sfu-fullstack-template/commit/f7f223fd26489bd4ee23378d0337c12574373366))
+
 ## [1.18.4](https://github.com/getscaf/sfu-fullstack-template/compare/v1.18.3...v1.18.4) (2026-11-25)
 
 ### Dependencies
