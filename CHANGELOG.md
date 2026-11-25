@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.18.3](https://github.com/getscaf/sfu-fullstack-template/compare/v1.18.2...v1.18.3) (2026-11-25)
+
+### Dependencies
+
+* **deps:** update argocd helm charts to latest versions ([#212](https://github.com/getscaf/sfu-fullstack-template/issues/212)) ([665b231](https://github.com/getscaf/sfu-fullstack-template/commit/665b231a46b343d7d78367231cbba1766f49fae1))
+
 ## [1.18.2](https://github.com/getscaf/sfu-fullstack-template/compare/v1.18.1...v1.18.2) (2026-11-23)
 
 ### Bug Fixes
