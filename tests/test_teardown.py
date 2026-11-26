@@ -8,8 +8,11 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import weakref
 from pathlib import Path
+from unittest.mock import patch
 
+from template.terraform.scripts.teardown import Teardown
 from template.terraform.scripts.teardown_commands import diagnostic_summary
 from tests.generation import generate_project
 
@@ -550,6 +553,30 @@ class TeardownTests(unittest.TestCase):
                     self.assertTrue(
                         self.current()["remote"]["env:/other/state"]["resources"]
                     )
+
+    def test_other_workspace_outputs_are_released_after_ownership_discovery(self):
+        class TrackedOutputs(dict):
+            pass
+
+        helper = Teardown(self.project, "sandbox")
+        keys = ["env:/demo-{}/state".format(i) for i in range(4)]
+        outputs = []
+
+        def read_remote(backend):
+            if backend["key"] not in keys:
+                return state()
+            snapshot = state(resource("aws_s3_bucket", "assets", backend["key"]))
+            snapshot["outputs"] = TrackedOutputs(snapshot["outputs"])
+            outputs.append(weakref.ref(snapshot["outputs"]))
+            return snapshot
+
+        with patch.object(helper, "read_remote", side_effect=read_remote), patch.object(
+            helper, "aws", return_value={"Contents": [{"Key": k} for k in keys]}
+        ):
+            helper.inspect_other_states()
+
+        self.assertEqual(len(outputs), len(keys))
+        self.assertTrue(all(ref() is None for ref in outputs))
 
     def test_other_environment_preserves_shared_stacks(self):
         self.fixture["remote"]["cms-demo.staging.json"] = state(

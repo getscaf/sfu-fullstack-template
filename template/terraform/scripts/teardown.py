@@ -247,7 +247,8 @@ class Teardown:
                 "Select the default workspace; additional workspaces are retained, not guessed"
             )
         self.phase = "preflight"
-        self.states = {}
+        self.environment_resources = []
+        self.storage_owners = {}
         self.approved = {}
 
     def data_dir(self, stack):
@@ -376,55 +377,46 @@ class Teardown:
                         )
                     )
 
-    def repository_identity(self, item):
-        return (
-            self.account,
-            self.resource_region(item),
-            item["values"].get("name") or item["values"]["id"],
-        )
-
     def bucket_identity(self, item):
         return item["values"].get("bucket") or item["values"]["id"]
 
-    def check_storage_ownership(self, selected):
-        selected_repos = {
-            self.repository_identity(r)
-            for r in selected
-            if r["type"] == "aws_ecr_repository"
-        }
-        selected_buckets = {
-            self.bucket_identity(r) for r in selected if r["type"] == "aws_s3_bucket"
-        }
-        backend_buckets = {backend["bucket"] for backend in self.backends.values()}
-        if selected_buckets & backend_buckets:
-            raise TeardownError(
-                "S3 ownership overlaps with a configured state backend; resolve ownership before teardown"
+    def storage_identity(self, item):
+        if item["type"] == "aws_s3_bucket":
+            return ("S3", self.bucket_identity(item))
+        if item["type"] == "aws_ecr_repository":
+            return (
+                "ECR",
+                self.account,
+                self.resource_region(item),
+                item["values"].get("name") or item["values"]["id"],
             )
-        for stack, state in self.states.items():
-            if stack == self.environment:
+        return None
+
+    def check_storage_ownership(self, selected):
+        backend_buckets = {backend["bucket"] for backend in self.backends.values()}
+        for item in selected:
+            identity = self.storage_identity(item)
+            if identity is None:
                 continue
-            other = {
-                self.repository_identity(r)
-                for r in resources(state, stack)
-                if r["type"] == "aws_ecr_repository"
-            }
-            if selected_repos & other:
+            if identity[0] == "S3" and identity[1] in backend_buckets:
                 raise TeardownError(
-                    "ECR ownership overlaps with {}; resolve ownership before teardown".format(
-                        stack
+                    "S3 ownership overlaps with a configured state backend; resolve ownership before teardown"
+                )
+            owner = self.storage_owners.get(identity)
+            if owner:
+                raise TeardownError(
+                    "{} ownership overlaps with {}; resolve ownership before teardown".format(
+                        identity[0], owner
                     )
                 )
-            other_buckets = {
-                self.bucket_identity(r)
-                for r in resources(state, stack)
-                if r["type"] == "aws_s3_bucket"
-            }
-            if selected_buckets & other_buckets:
-                raise TeardownError(
-                    "S3 ownership overlaps with {}; resolve ownership before teardown".format(
-                        stack
-                    )
-                )
+
+    def index_storage_owners(self, backend, label):
+        items = resources(self.read_remote(backend), label)
+        self.validate_account(items)
+        for item in items:
+            identity = self.storage_identity(item)
+            if identity is not None:
+                self.storage_owners.setdefault(identity, label)
 
     def inspect(self):
         if self.aws("sts", "get-caller-identity").get("Account") != self.account:
@@ -440,7 +432,6 @@ class Teardown:
             raise TeardownError(
                 "Environment has no recorded state; cannot verify teardown"
             )
-        self.states[self.environment] = selected
         items = resources(selected, self.environment)
         self.validate_account(items)
         if not items:
@@ -461,8 +452,8 @@ class Teardown:
         self.applied_disposable = applied is True
         # An explicitly protected deployment overrides a disposable checkout.
         self.disposable = self.disposable and applied is not False
-        self.states[stack] = fresh
         items = resources(fresh, stack)
+        self.environment_resources = items
         self.validate_account(items)
         self.check_storage_ownership(items)
         for item in items:
@@ -474,7 +465,7 @@ class Teardown:
         buckets = {}
         for stack, backend in self.backends.items():
             if stack != self.environment:
-                self.states[stack] = self.read_remote(backend)
+                self.index_storage_owners(backend, stack)
             buckets.setdefault((backend["bucket"], backend["region"]), backend)
         for (bucket, region), backend in buckets.items():
             known = {b["key"] for b in self.backends.values() if b["bucket"] == bucket}
@@ -493,8 +484,8 @@ class Teardown:
                 for obj in page.get("Contents", []):
                     key = obj["Key"]
                     if key not in known:
-                        self.states["extra:" + bucket + "/" + key] = self.read_remote(
-                            dict(backend, key=key)
+                        self.index_storage_owners(
+                            dict(backend, key=key), "extra:" + bucket + "/" + key
                         )
                 if not page.get("IsTruncated"):
                     break
@@ -504,8 +495,6 @@ class Teardown:
                         "Cannot finish listing backend bucket {}".format(bucket)
                     )
                 cursor = ["--continuation-token", token]
-        for stack, state in self.states.items():
-            self.validate_account(resources(state, stack))
 
     def pull(self):
         return decode_state(
@@ -665,7 +654,7 @@ class Teardown:
             print("State backend region: {}".format(self.backend_region))
         for address in sorted(self.approved):
             print("  delete {}: {}".format(self.environment, address))
-        for item in resources(self.states[self.environment], self.environment):
+        for item in self.environment_resources:
             if item["type"] in ("aws_s3_bucket", "aws_ecr_repository", "aws_instance"):
                 print("    {}: {}".format(item["address"], item["values"]["id"]))
         print("Shared GitHub resources, state bucket and lock table will be retained.")
@@ -697,7 +686,7 @@ class Teardown:
         ) or self.application_region
 
     def stop_nodes(self):
-        for item in resources(self.states[self.environment], self.environment):
+        for item in self.environment_resources:
             if item["type"] != "aws_instance":
                 continue
             identity = item["values"]["id"]
