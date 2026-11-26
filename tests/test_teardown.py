@@ -410,6 +410,24 @@ class TeardownTests(unittest.TestCase):
                         (config_dir / filename).read_text(), "fixture for " + filename
                     )
 
+    def test_disposable_checkout_cannot_auto_approve_protected_or_unknown_state(self):
+        policy = self.project / "terraform/sandbox/teardown-policy.json"
+        policy.write_text('{"disposable": true}')
+        self.env["TEARDOWN_AUTO_APPROVE"] = "1"
+        outputs = self.fixture["remote"]["cms_demo.sandbox.json"]["outputs"]
+        for applied in (False, None):
+            with self.subTest(applied=applied):
+                if applied is None:
+                    outputs.pop("teardown_disposable")
+                else:
+                    outputs["teardown_disposable"] = {"value": applied, "type": "bool"}
+                self.fixture["calls"] = []
+                self.persist()
+                result = self.invoke(approve=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Type 'sandbox' to continue", result.stdout)
+                self.assertFalse(self.destructive())
+
     def test_disposable_teardown_uses_provider_policy_and_resumes_after_interruption(
         self,
     ):
@@ -435,6 +453,12 @@ class TeardownTests(unittest.TestCase):
         self.fixture["buckets"][self.backups]["objects"] = ["backup.dump"]
         self.fixture["images"] = [self.repo]
         arn = self.add_secret(0)
+        self.fixture["remote"]["cms_demo.sandbox.json"]["outputs"][
+            "teardown_disposable"
+        ] = {
+            "value": True,
+            "type": "bool",
+        }
         self.fixture["fail_apply"] = {"sandbox": 1}
         self.env["TEARDOWN_AUTO_APPROVE"] = "1"
         self.persist()
@@ -443,7 +467,10 @@ class TeardownTests(unittest.TestCase):
         self.assertNotIn("i-one", partial["nodes"])
         self.assertEqual(partial["remote"]["cms_demo.sandbox.json"]["outputs"], {})
         self.assertIn(self.repo, partial["repositories"])
-        self.assert_success(self.invoke(approve=False))
+        before_resume = len(self.destructive())
+        self.assertNotEqual(self.invoke(approve=False).returncode, 0)
+        self.assertEqual(len(self.destructive()), before_resume)
+        self.assert_success(self.invoke())
         done = self.current()
         self.assertEqual(set(done["buckets"]), {self.bucket})
         self.assertTrue(done["table_exists"])

@@ -1,10 +1,14 @@
+locals {
+  teardown_disposable = jsondecode(file("${path.module}/teardown-policy.json")).disposable
+}
+
 module "cluster" {
   source                 = "../modules/base"
 {% if copier__create_nextjs_frontend %}
   nextjs_domain_name     = "nextjs.sandbox.{{ copier__domain_name }}"
 {% endif %}
   environment            = "sandbox"
-  disposable             = jsondecode(file("${path.module}/teardown-policy.json")).disposable
+  disposable             = local.teardown_disposable
   cluster_name           = "{{ copier__project_dash }}-sandbox"
   domain_name            = "sandbox.{{ copier__domain_name }}"
   api_domain_name        = "api.sandbox.{{ copier__domain_name }}"

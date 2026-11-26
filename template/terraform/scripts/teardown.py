@@ -708,6 +708,14 @@ class Teardown:
         stack = self.environment
         self.tofu(stack, "init", "-input=false", "-no-color")
         fresh = self.pull(stack)
+        outputs = fresh.get("outputs")
+        policy = (
+            outputs.get("teardown_disposable") if isinstance(outputs, dict) else None
+        )
+        applied = policy.get("value") if isinstance(policy, dict) else None
+        self.applied_disposable = applied is True
+        # An explicitly protected deployment overrides a disposable checkout.
+        self.disposable = self.disposable and applied is not False
         self.states[stack] = fresh
         items = resources(fresh, stack)
         self.validate_account(items)
@@ -923,7 +931,10 @@ class Teardown:
             print(
                 "Disposable sandbox: Terraform can permanently delete media, backups, images and cluster secrets."
             )
-            if os.environ.get("TEARDOWN_AUTO_APPROVE") == "1":
+            if (
+                self.applied_disposable
+                and os.environ.get("TEARDOWN_AUTO_APPROVE") == "1"
+            ):
                 print("Approved by TEARDOWN_AUTO_APPROVE=1 for the disposable sandbox")
                 return
         try:

@@ -43,7 +43,10 @@ backups, container images and credentials through OpenTofu. Staging and
 production keep their protected policies.
 
 Use `TEARDOWN_AUTO_APPROVE=1 task teardown-sandbox` for unattended disposable
-teardown. The task still checks the plan and storage ownership.
+teardown. Both the project configuration and deployed state must identify the
+sandbox as disposable. If an interrupted run no longer has the policy output
+in state, type the environment name to resume. The task still checks the plan
+and storage ownership.
 
 ## Retrying
 
