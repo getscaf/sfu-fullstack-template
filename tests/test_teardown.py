@@ -934,7 +934,7 @@ class TeardownRunnerTests(unittest.TestCase):
 
     def destroyer(self, failures):
         helper = HELPER.Teardown.__new__(HELPER.Teardown)
-        helper.approved = {"sandbox": {}}
+        helper.environment = "sandbox"
         helper.check_plan = Mock(side_effect=failures)
         helper.pull = Mock(return_value=state())
         return helper
@@ -1000,7 +1000,7 @@ class TeardownRunnerTests(unittest.TestCase):
         ) as sleeping, contextlib.redirect_stdout(
             io.StringIO()
         ):
-            helper.destroy("sandbox")
+            helper.destroy()
         self.assertEqual(
             [call.args[0] for call in sleeping.call_args_list], [30, 60, 120]
         )
@@ -1022,7 +1022,7 @@ class TeardownRunnerTests(unittest.TestCase):
             io.StringIO()
         ):
             with self.assertRaises(HELPER.CommandError):
-                helper.destroy("sandbox")
+                helper.destroy()
         self.assertEqual(helper.check_plan.call_count, 2)
         sleeping.assert_called_once_with(30)
 
@@ -1037,7 +1037,7 @@ class TeardownRunnerTests(unittest.TestCase):
             io.StringIO()
         ):
             with self.assertRaises(HELPER.CommandError):
-                helper.destroy("sandbox")
+                helper.destroy()
         self.assertEqual(helper.check_plan.call_count, 1)
 
     def test_mixed_permanent_errors_are_not_retried(self):
@@ -1046,7 +1046,7 @@ class TeardownRunnerTests(unittest.TestCase):
             io.StringIO()
         ):
             with self.assertRaises(HELPER.CommandError):
-                helper.destroy("sandbox")
+                helper.destroy()
         sleeping.assert_not_called()
         self.assertEqual(helper.check_plan.call_count, 1)
         misleading = HELPER.CommandError(

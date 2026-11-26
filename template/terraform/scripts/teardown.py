@@ -557,7 +557,8 @@ class Teardown:
         )
         return decode(output or "{}", "AWS {} {}".format(service, operation))
 
-    def tofu(self, stack, *args):
+    def tofu(self, *args):
+        stack = self.environment
         if args[0] in ("init", "plan", "apply"):
             return run_tofu_ui(
                 [
@@ -570,10 +571,7 @@ class Teardown:
                 "{} {}".format(stack, args[0]),
                 7200 if args[0] == "apply" else 300,
             )
-        return run(
-            ["tofu", "-chdir={}".format(self.terraform / stack), *args],
-            timeout=7200 if args[0] == "apply" else 300,
-        )
+        return run(["tofu", "-chdir={}".format(self.terraform / stack), *args])
 
     def bucket_exists(self, bucket, region):
         try:
@@ -706,8 +704,8 @@ class Teardown:
         self.inspect_other_states()
         self.check_storage_ownership(items)
         stack = self.environment
-        self.tofu(stack, "init", "-input=false", "-no-color")
-        fresh = self.pull(stack)
+        self.tofu("init", "-input=false", "-no-color")
+        fresh = self.pull()
         outputs = fresh.get("outputs")
         policy = (
             outputs.get("teardown_disposable") if isinstance(outputs, dict) else None
@@ -720,11 +718,9 @@ class Teardown:
         items = resources(fresh, stack)
         self.validate_account(items)
         self.check_storage_ownership(items)
-        approved = {}
         for item in items:
-            approved.setdefault(item["address"], set()).add(item["values"]["id"])
-        self.approved[stack] = approved
-        self.check_plan(stack)
+            self.approved.setdefault(item["address"], set()).add(item["values"]["id"])
+        self.check_plan()
         return True
 
     def inspect_other_states(self):
@@ -764,19 +760,16 @@ class Teardown:
         for stack, state in self.states.items():
             self.validate_account(resources(state, stack))
 
-    def pull(self, stack):
-        state = decode_state(
-            self.tofu(stack, "state", "pull"), "{} state".format(stack)
+    def pull(self):
+        return decode_state(
+            self.tofu("state", "pull"), "{} state".format(self.environment)
         )
-        return state
 
-    def check_plan(self, stack, apply=False):
+    def check_plan(self, apply=False):
         with tempfile.TemporaryDirectory(prefix="scaf-destroy-") as directory:
             plan = str(Path(directory) / "destroy.tfplan")
-            self.tofu(
-                stack, "plan", "-destroy", "-input=false", "-no-color", "-out=" + plan
-            )
-            value = decode(self.tofu(stack, "show", "-json", plan), "destroy plan")
+            self.tofu("plan", "-destroy", "-input=false", "-no-color", "-out=" + plan)
+            value = decode(self.tofu("show", "-json", plan), "destroy plan")
             planned = []
             for change in value.get("resource_changes", []):
                 if change.get("mode") == "data":
@@ -786,11 +779,13 @@ class Teardown:
                         ["delete"],
                     ):
                         raise TeardownError(
-                            "Unexpected data-source action in {}".format(stack)
+                            "Unexpected data-source action in {}".format(
+                                self.environment
+                            )
                         )
                     continue
                 action = change["change"]
-                identities = self.approved[stack].get(change["address"], set())
+                identities = self.approved.get(change["address"], set())
                 if (
                     action["actions"] not in (["delete"], ["no-op"])
                     or (action.get("before") or {}).get("id") not in identities
@@ -812,7 +807,7 @@ class Teardown:
             self.check_storage_ownership(planned)
             self.check_deletion_policy(planned)
             if apply:
-                self.tofu(stack, "apply", "-input=false", "-no-color", plan)
+                self.tofu("apply", "-input=false", "-no-color", plan)
 
     def check_deletion_policy(self, planned):
         blocked = []
@@ -921,7 +916,7 @@ class Teardown:
         )
         if self.backend_region != self.application_region:
             print("State backend region: {}".format(self.backend_region))
-        for address in sorted(self.approved[self.environment]):
+        for address in sorted(self.approved):
             print("  delete {}: {}".format(self.environment, address))
         for item in resources(self.states[self.environment], self.environment):
             if item["type"] in ("aws_s3_bucket", "aws_ecr_repository", "aws_instance"):
@@ -1014,16 +1009,15 @@ class Teardown:
                     )
                 time.sleep(2)
 
-    def destroy(self, stack):
-        if stack not in self.approved:
-            return
+    def destroy(self):
+        stack = self.environment
         self.phase = "destroy {}".format(stack)
         print("Destroying remaining resources: {}".format(stack))
         delays = (30, 60, 120)
         deadline = None
         for attempt in range(len(delays) + 1):
             try:
-                self.check_plan(stack, apply=True)
+                self.check_plan(apply=True)
                 break
             except CommandError as error:
                 now = time.monotonic()
@@ -1044,7 +1038,7 @@ class Teardown:
                 time.sleep(delays[attempt])
                 if time.monotonic() >= deadline:
                     raise
-        if resources(self.pull(stack), stack):
+        if resources(self.pull(), stack):
             raise TeardownError(
                 "Managed resources remain in {}; backend preserved".format(stack)
             )
@@ -1056,7 +1050,7 @@ class Teardown:
         self.confirm()
         self.phase = "node shutdown"
         self.stop_nodes()
-        self.destroy(self.environment)
+        self.destroy()
         print(
             "Environment teardown completed for {}; shared GitHub and bootstrap retained.".format(
                 self.environment
