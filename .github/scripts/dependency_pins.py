@@ -29,7 +29,7 @@ def node_version(releases):
 
 
 def python_version(metadata, current_tag):
-    current = re.fullmatch(r"(\d+\.\d+)(?:\.\d+)?(-slim-\w+)", current_tag)
+    current = re.fullmatch(r"(\d+\.\d+)(?:\.\d+)?(-slim)", current_tag)
     if not current:
         raise ValueError(f"Unsupported Python image tag: {current_tag}")
     minor, suffix = current.groups()

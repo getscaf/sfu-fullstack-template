@@ -4,17 +4,17 @@ set -euo pipefail
 # Kept as a single script so the Docker Hub API is called once and the resolved
 # version is shared across all file updates without needing a temp file.
 
-tags=$(curl -fsSL "https://registry.hub.docker.com/v2/repositories/library/python/tags?page_size=100&name=slim-bookworm")
+tags=$(curl -fsSL "https://registry.hub.docker.com/v2/repositories/library/python/tags?page_size=100&name=slim")
 
 minor=$(echo "$tags" | jq -r '
-  [.results[].name | select(test("^[0-9]+\\.[0-9]+-slim-bookworm$")) | rtrimstr("-slim-bookworm")]
+  [.results[].name | select(test("^[0-9]+\\.[0-9]+-slim$")) | rtrimstr("-slim")]
   | map(split(".") | map(tonumber))
   | max_by(.[0] * 1000 + .[1])
   | join(".")
 ')
 
 full=$(echo "$tags" | jq -r --arg minor "$minor" '
-  [.results[].name | select(test("^" + $minor + "\\.[0-9]+-slim-bookworm$")) | rtrimstr("-slim-bookworm")]
+  [.results[].name | select(test("^" + $minor + "\\.[0-9]+-slim$")) | rtrimstr("-slim")]
   | map(split(".") | map(tonumber))
   | if length > 0 then max_by(.[2]) | join(".") else $minor end
 ')
