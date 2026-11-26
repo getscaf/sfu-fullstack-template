@@ -66,3 +66,8 @@ output "backend_ecr_repo" {
   description = "The Backend ECR repository"
   value       = module.cluster.backend_ecr_repo
 }
+
+output "cluster_secret_arns" {
+  description = "Secret identifiers for cluster bootstrap"
+  value       = module.cluster.cluster_secret_arns
+}

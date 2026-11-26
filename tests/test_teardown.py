@@ -15,11 +15,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-import yaml
-from jinja2 import Environment, StrictUndefined
-
 from tests.generation import generate_project
-from tests.template_source import export_template_source
 
 ROOT = Path(__file__).resolve().parents[1]
 ACCOUNT = "123456789012"
@@ -101,7 +97,7 @@ class TeardownTests(unittest.TestCase):
         self.bin = self.case / "bin"
         self.bin.mkdir()
         body = (ROOT / "tests/fixtures/teardown_cli.py").read_text()
-        for name in ("aws", "tofu", "gh"):
+        for name in ("aws", "tofu"):
             script = self.bin / name
             script.write_text("#!{}\n{}".format(sys.executable, body))
             script.chmod(0o755)
@@ -113,7 +109,9 @@ class TeardownTests(unittest.TestCase):
         self.env = {
             k: v
             for k, v in os.environ.items()
-            if not k.startswith(("AWS_", "GH_", "GITHUB_", "TF_", "TERRAFORM_"))
+            if not k.startswith(
+                ("AWS_", "GH_", "GITHUB_", "TF_", "TERRAFORM_", "TEARDOWN_")
+            )
         }
         self.env.update(
             PATH=str(self.bin) + os.pathsep + os.environ["PATH"],
@@ -135,15 +133,10 @@ class TeardownTests(unittest.TestCase):
                 for name in (self.bucket, self.static, self.backups)
             },
             "repositories": [self.repo],
+            "images": [],
             "nodes": {"i-one": "running"},
             "secrets": {},
             "table_exists": True,
-            "roles": [
-                {
-                    "Arn": ROLE,
-                    "AssumeRolePolicyDocument": {"Principal": {"Federated": PROVIDER}},
-                }
-            ],
             "remote": {
                 "cms_demo.sandbox.json": state(
                     resource("aws_instance", "node", "i-one"),
@@ -208,11 +201,6 @@ class TeardownTests(unittest.TestCase):
                 ),
             ),
         }
-        self.fixture["buckets"][self.static]["versions"] = [
-            {"Key": "static/admin.css", "VersionId": "old"},
-            {"Key": "media/image.jpg", "VersionId": "marker", "DeleteMarker": True},
-        ]
-        self.fixture["buckets"][self.backups]["objects"] = ["backup.dump"]
         self.fixture["buckets"][self.bucket]["versions"] = [
             {"Key": k, "VersionId": "old-state"} for k in self.fixture["remote"]
         ]
@@ -228,7 +216,13 @@ class TeardownTests(unittest.TestCase):
         return json.loads(self.data.read_text())
 
     def invoke(
-        self, *, approve=True, input_text="", command="teardown-sandbox", python39=False
+        self,
+        *,
+        approve=True,
+        input_text=None,
+        command="teardown-sandbox",
+        python39=False,
+        task_args=(),
     ):
         env = dict(self.env)
         if not approve:
@@ -241,10 +235,14 @@ class TeardownTests(unittest.TestCase):
                 )
             (self.bin / "python3").symlink_to(interpreter)
         result = subprocess.run(
-            [TASK, command],
+            [TASK, command, *task_args],
             cwd=self.project,
             env=env,
-            input=input_text,
+            input=(
+                (command.removeprefix("teardown-") + "\n" if approve else "")
+                if input_text is None
+                else input_text
+            ),
             capture_output=True,
             text=True,
             timeout=90,
@@ -266,92 +264,6 @@ class TeardownTests(unittest.TestCase):
         }
         return [c for c in calls if any(x in operations for x in c)]
 
-    def test_old_state_retry_and_completed_noop(self):
-        self.fixture["fail_apply"] = {"sandbox": 1}
-        self.persist()
-        first = self.invoke()
-        self.assertNotEqual(first.returncode, 0)
-        partial = self.current()
-        self.assertIn(self.bucket, partial["buckets"])
-        self.assertTrue(partial["remote"]["cms-demo.github.json"]["resources"])
-        self.assertNotIn("i-one", partial["nodes"])
-        # Same files/command; missing outputs and deleted ECR do not block retry.
-        self.assert_success(self.invoke())
-        done = self.current()
-        self.assertFalse(done["buckets"])
-        self.assertFalse(done["repositories"])
-        self.assertFalse(done["table_exists"])
-        before = len(self.destructive())
-        again = self.invoke()
-        self.assert_success(again)
-        self.assertIn("already complete", again.stdout)
-        self.assertEqual(len(self.destructive()), before)
-
-    def test_many_versions_and_delete_markers_are_paginated_and_batched(self):
-        self.fixture["buckets"][self.static]["versions"] = [
-            {
-                "Key": "asset{:04}".format(i),
-                "VersionId": str(i),
-                "DeleteMarker": i % 2 == 0,
-            }
-            for i in range(2005)
-        ]
-        self.persist()
-        self.assert_success(self.invoke())
-        calls = self.current()["calls"]
-        self.assertTrue(any("--key-marker" in c for c in calls))
-        requests = [
-            json.loads(c[c.index("--delete") + 1])["Objects"]
-            for c in calls
-            if "delete-objects" in c
-        ]
-        self.assertTrue(any(len(batch) == 1000 for batch in requests))
-        self.assertTrue(all(len(batch) <= 1000 for batch in requests))
-
-    def test_per_object_error_preserves_backend(self):
-        self.fixture["object_error"] = True
-        self.persist()
-        result = self.invoke()
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("AccessDenied", result.stderr)
-        self.assertIn(self.bucket, self.current()["buckets"])
-        self.assertFalse(any("apply" in c for c in self.current()["calls"]))
-
-    def test_s3_cleanup_deletes_pages_before_listing_entire_bucket(self):
-        self.fixture["buckets"][self.static]["versions"] = [
-            {
-                "Key": "media/image.jpg",
-                "VersionId": "version-{:04}".format(i),
-                "DeleteMarker": i % 3 == 0,
-            }
-            for i in range(3005)
-        ]
-        self.fixture["buckets"][self.backups]["objects"] = [
-            "backup-{:04}.dump".format(i) for i in range(2005)
-        ]
-        self.persist()
-        self.assert_success(self.invoke())
-        calls = self.current()["calls"]
-        for bucket, operation in (
-            (self.static, "list-object-versions"),
-            (self.backups, "list-objects-v2"),
-        ):
-            with self.subTest(bucket=bucket):
-                listings = [
-                    index
-                    for index, call in enumerate(calls)
-                    if operation in call and bucket in call
-                ]
-                deletions = [
-                    index
-                    for index, call in enumerate(calls)
-                    if "delete-objects" in call and bucket in call
-                ]
-                self.assertGreaterEqual(len(listings), 3)
-                self.assertLess(deletions[0], listings[2])
-        self.assertTrue(any("--version-id-marker" in call for call in calls))
-        self.assertFalse(self.current()["buckets"])
-
     def test_preflight_errors_do_not_delete_anything(self):
         for error in ("AccessDenied", "ExpiredToken", "ConnectionError"):
             with self.subTest(error=error):
@@ -361,8 +273,215 @@ class TeardownTests(unittest.TestCase):
                 self.assertNotEqual(self.invoke().returncode, 0)
                 self.assertFalse(self.destructive())
 
+    def test_protected_teardown_reports_populated_storage_before_stopping_nodes(self):
+        self.fixture["buckets"][self.static]["versions"] = [
+            {"Key": "media/image.jpg", "VersionId": "marker", "DeleteMarker": True}
+        ]
+        self.fixture["buckets"][self.backups]["objects"] = ["backup.dump"]
+        self.fixture["images"] = [self.repo]
+        self.persist()
+        result = self.invoke()
+        self.assertNotEqual(result.returncode, 0)
+        for name in (self.static, self.backups, self.repo):
+            self.assertIn(name, result.stderr)
+        self.assertIn("Non-empty protected storage", result.stderr)
+        self.assertFalse(self.destructive())
+        self.assertEqual(self.current()["nodes"], {"i-one": "running"})
+        self.assertEqual(self.current()["buckets"], self.fixture["buckets"])
+
+    def test_protected_teardown_rejects_force_flags_already_in_state(self):
+        original = json.dumps(self.fixture)
+        for index, flag in ((1, "force_destroy"), (3, "force_delete")):
+            with self.subTest(flag=flag):
+                self.fixture = json.loads(original)
+                item = self.fixture["remote"]["cms_demo.sandbox.json"]["resources"][
+                    index
+                ]
+                item["instances"][0]["attributes"][flag] = True
+                self.persist()
+                result = self.invoke()
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(flag, result.stderr)
+                self.assertFalse(self.destructive())
+
+    def test_protected_teardown_rejects_secret_without_a_recovery_window(self):
+        self.add_secret(0)
+        self.persist()
+        result = self.invoke()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("without a recovery window", result.stderr)
+        self.assertFalse(self.destructive())
+
+    def add_secret(self, days):
+        arn = "arn:aws:secretsmanager:us-east-1:{}:secret:cms_demo_sandbox_kubeconfig-abc123".format(
+            ACCOUNT
+        )
+        self.fixture["remote"]["cms_demo.sandbox.json"]["resources"].append(
+            resource(
+                "aws_secretsmanager_secret",
+                "cluster",
+                arn,
+                arn=arn,
+                recovery_window_in_days=days,
+            )
+        )
+        self.fixture["secrets"][arn] = {}
+        return arn
+
+    def test_protected_teardown_schedules_secret_with_recovery_and_preserves_shared_state(
+        self,
+    ):
+        arn = self.add_secret(30)
+        self.persist()
+        self.assert_success(self.invoke())
+        current = self.current()
+        self.assertEqual(current["secrets"][arn]["scheduled_recovery_days"], 30)
+        self.assertEqual(
+            current["remote"]["cms-demo.github.json"],
+            self.fixture["remote"]["cms-demo.github.json"],
+        )
+        self.assertEqual(
+            current["buckets"][self.bucket], self.fixture["buckets"][self.bucket]
+        )
+        self.assertTrue(current["table_exists"])
+        self.assertFalse(any("delete-secret" in call for call in current["calls"]))
+
+    def test_cluster_tasks_store_and_fetch_values_by_terraform_secret_arn(self):
+        for cluster_os in ("k3s", "talos"):
+            with self.subTest(cluster_os=cluster_os):
+                self.project = generate_project(
+                    self.case / cluster_os, copier__operating_system=cluster_os
+                )
+                config_dir = self.project / "bootstrap-cluster/sandbox"
+                configs = [
+                    (
+                        "kubeconfig",
+                        "kubeconfig",
+                        (
+                            "store-kubeconfig"
+                            if cluster_os == "k3s"
+                            else "store_kubeconfig"
+                        ),
+                    ),
+                ]
+                if cluster_os == "talos":
+                    configs += [
+                        ("talosconfig", "talosconfig_yaml", "store_talosconfig"),
+                        (
+                            "controlplane.yaml",
+                            "talos_controlplane_yaml",
+                            "store_controlplane_config",
+                        ),
+                    ]
+                arns = {
+                    name: "arn:aws:secretsmanager:us-east-1:{}:secret:generated_{}-abc123".format(
+                        ACCOUNT, name
+                    )
+                    for _, name, _ in configs
+                }
+                self.fixture["secrets"] = {arn: {} for arn in arns.values()}
+                self.fixture["remote"]["cms_demo.sandbox.json"]["outputs"][
+                    "cluster_secret_arns"
+                ] = {"value": arns}
+                self.persist()
+                for filename, _, store_task in configs:
+                    path = config_dir / filename
+                    path.write_text("fixture for " + filename)
+                    self.assert_success(
+                        self.invoke(
+                            task_args=("ENV=sandbox",),
+                            command="bootstrap-cluster:{}:{}".format(
+                                cluster_os, store_task
+                            ),
+                        )
+                    )
+                    path.unlink()
+                fetch_task = "fetch-config" if cluster_os == "k3s" else "fetch_config"
+                self.assert_success(
+                    self.invoke(
+                        task_args=("ENV=sandbox",),
+                        command="bootstrap-cluster:{}:{}".format(
+                            cluster_os, fetch_task
+                        ),
+                    )
+                )
+                for filename, _, _ in configs:
+                    self.assertEqual(
+                        (config_dir / filename).read_text(), "fixture for " + filename
+                    )
+
+    def test_disposable_teardown_uses_provider_policy_and_resumes_after_interruption(
+        self,
+    ):
+        rendered = generate_project(
+            self.case / "disposable", copier__disposable_sandbox=True
+        )
+        policy = "terraform/sandbox/teardown-policy.json"
+        self.assertEqual(
+            json.loads((self.project / policy).read_text()), {"disposable": False}
+        )
+        shutil.copyfile(rendered / policy, self.project / policy)
+        self.assertEqual(
+            json.loads((self.project / policy).read_text()), {"disposable": True}
+        )
+        for item in self.fixture["remote"]["cms_demo.sandbox.json"]["resources"]:
+            if item["type"] == "aws_s3_bucket":
+                item["instances"][0]["attributes"]["force_destroy"] = True
+            elif item["type"] == "aws_ecr_repository":
+                item["instances"][0]["attributes"]["force_delete"] = True
+        self.fixture["buckets"][self.static]["versions"] = [
+            {"Key": "media/image.jpg", "VersionId": "v1"}
+        ]
+        self.fixture["buckets"][self.backups]["objects"] = ["backup.dump"]
+        self.fixture["images"] = [self.repo]
+        arn = self.add_secret(0)
+        self.fixture["fail_apply"] = {"sandbox": 1}
+        self.env["TEARDOWN_AUTO_APPROVE"] = "1"
+        self.persist()
+        self.assertNotEqual(self.invoke(approve=False).returncode, 0)
+        partial = self.current()
+        self.assertNotIn("i-one", partial["nodes"])
+        self.assertEqual(partial["remote"]["cms_demo.sandbox.json"]["outputs"], {})
+        self.assertIn(self.repo, partial["repositories"])
+        self.assert_success(self.invoke(approve=False))
+        done = self.current()
+        self.assertEqual(set(done["buckets"]), {self.bucket})
+        self.assertTrue(done["table_exists"])
+        self.assertNotIn(self.repo, done["repositories"])
+        self.assertNotIn(arn, done["secrets"])
+        self.assertFalse(
+            any(
+                call[0] == "aws"
+                and any(
+                    op in call
+                    for op in ("delete-objects", "delete-repository", "delete-secret")
+                )
+                for call in done["calls"]
+            )
+        )
+        before = len(self.destructive())
+        again = self.invoke(approve=False)
+        self.assert_success(again)
+        self.assertIn("already complete", again.stdout)
+        self.assertEqual(len(self.destructive()), before)
+
+    def test_missing_state_or_backend_is_not_a_successful_noop(self):
+        self.fixture["remote"].pop("cms_demo.sandbox.json")
+        self.persist()
+        missing = self.invoke()
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertIn("no recorded state", missing.stderr)
+        self.assertFalse(self.destructive())
+        self.fixture["buckets"].pop(self.bucket)
+        self.persist()
+        missing = self.invoke()
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertIn("State backend bucket is missing", missing.stderr)
+        self.assertFalse(self.destructive())
+
     def test_decline_and_task_yes_do_not_approve(self):
-        result = self.invoke(approve=False, input_text="no\n")
+        self.env["TEARDOWN_AUTO_APPROVE"] = "1"
+        result = self.invoke(input_text="yes\n")
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(self.destructive())
         result = subprocess.run(
@@ -406,9 +525,7 @@ class TeardownTests(unittest.TestCase):
                     self.assertIn(self.repo, self.current()["repositories"])
                 else:
                     self.assert_success(result)
-                    self.assertIn(
-                        "shared GitHub/bootstrap infrastructure retained", result.stdout
-                    )
+                    self.assertIn("shared GitHub and bootstrap retained", result.stdout)
                     self.assertIn(self.bucket, self.current()["buckets"])
                     self.assertTrue(
                         self.current()["remote"]["env:/other/state"]["resources"]
@@ -421,7 +538,7 @@ class TeardownTests(unittest.TestCase):
         self.persist()
         result = self.invoke()
         self.assert_success(result)
-        self.assertIn("shared GitHub/bootstrap infrastructure retained", result.stdout)
+        self.assertIn("shared GitHub and bootstrap retained", result.stdout)
         self.assertIn(self.bucket, self.current()["buckets"])
         self.assertTrue(self.current()["remote"]["cms-demo.github.json"]["resources"])
         self.assertFalse(
@@ -431,92 +548,11 @@ class TeardownTests(unittest.TestCase):
             )
         )
 
-    def test_oidc_reference_on_later_iam_page_preserves_backend(self):
-        self.fixture["roles"] += [
-            {
-                "Arn": "arn:aws:iam::{}:role/unrelated".format(ACCOUNT),
-                "AssumeRolePolicyDocument": {},
-            },
-            {
-                "Arn": "arn:aws:iam::{}:role/other-project".format(ACCOUNT),
-                "AssumeRolePolicyDocument": {"Principal": {"Federated": [PROVIDER]}},
-            },
-        ]
-        self.fixture["roles"].append(self.fixture["roles"][-1])
-        self.persist()
-        result = self.invoke()
-        self.assert_success(result)
-        self.assertEqual(result.stdout.count("OIDC provider used by role"), 1)
-        self.assertIn(self.bucket, self.current()["buckets"])
-        self.assertTrue(any("--marker" in c for c in self.current()["calls"]))
-
-    def test_github_lookup_failure_happens_before_cleanup(self):
-        self.fixture["github_error"] = True
-        self.persist()
-        result = self.invoke()
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("External Program Execution Failed", result.stderr)
-        self.assertIn("repository access", result.stderr)
-        self.assertIn("oidc.tf:25", result.stderr)
-        self.assertFalse(self.destructive())
-
-    def test_bootstrap_interruption_resumes_without_remote_init(self):
-        self.fixture["fail_apply"] = {"bootstrap": 1}
-        self.persist()
-        self.assertNotEqual(self.invoke().returncode, 0)
-        self.assertNotIn(self.bucket, self.current()["buckets"])
-        self.assertTrue(self.current()["table_exists"])
-        self.fixture = self.current()
-        self.fixture["calls"] = []
-        self.persist()
-        self.assert_success(self.invoke())
-        self.assertFalse(self.current()["table_exists"])
-        self.assertFalse(
-            any(
-                c[0] == "tofu" and "init" in c and "bootstrap" not in c[1]
-                for c in self.current()["calls"]
-            )
-        )
-
     def test_wrong_account_is_not_success(self):
         self.fixture["caller"] = "999999999999"
         self.persist()
         self.assertNotEqual(self.invoke().returncode, 0)
         self.assertFalse(self.destructive())
-
-    def test_failure_reports_stopped_nodes_and_active_phase(self):
-        original = json.dumps(self.fixture)
-        for failure in ("cleanup", "second_node"):
-            with self.subTest(failure=failure):
-                self.fixture = json.loads(original)
-                if failure == "cleanup":
-                    self.fixture["errors"] = {"s3api/delete-objects": "AccessDenied"}
-                    phase = "storage and secret cleanup"
-                else:
-                    self.fixture["nodes"]["i-two"] = "running"
-                    self.fixture["remote"]["cms_demo.sandbox.json"]["resources"].append(
-                        resource("aws_instance", "second_node", "i-two")
-                    )
-                    self.fixture["stop_errors"] = {"i-two": "AccessDenied"}
-                    phase = "node shutdown"
-                self.persist()
-                result = self.invoke()
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn("Node i-one in us-east-1: stopped", result.stdout)
-                self.assertIn("Teardown stopped during " + phase, result.stderr)
-                self.assertEqual(self.current()["nodes"]["i-one"], "stopped")
-                if failure == "second_node":
-                    self.assertIn("Checking node i-two", result.stdout)
-                    self.assertEqual(self.current()["nodes"]["i-two"], "running")
-                self.assertFalse(
-                    any("start-instances" in c for c in self.current()["calls"])
-                )
-                self.assertFalse(
-                    any(
-                        c[0] == "tofu" and "apply" in c for c in self.current()["calls"]
-                    )
-                )
-                self.assertIn(self.bucket, self.current()["buckets"])
 
     def test_node_shutdown_reports_terminal_and_absent_instances(self):
         original = json.dumps(self.fixture)
@@ -534,259 +570,8 @@ class TeardownTests(unittest.TestCase):
                     any("stop-instances" in c for c in self.current()["calls"])
                 )
 
-    def test_recovery_checks_other_bucket_using_the_same_lock_table(self):
-        original = json.dumps(self.fixture)
-        other_bucket = "staging-state-elsewhere"
-        key = self.fixture["keys"]["staging"]
-        directory = self.project / "terraform/staging/.terraform"
-        directory.mkdir()
-        (directory / "terraform.tfstate").write_text(
-            json.dumps(
-                {
-                    "backend": {
-                        "type": "s3",
-                        "config": {
-                            "bucket": other_bucket,
-                            "key": key,
-                            "region": "us-east-1",
-                            "dynamodb_table": self.bucket,
-                        },
-                    }
-                }
-            )
-        )
-        for scenario in ("active", "workspace", "empty", "unreadable"):
-            with self.subTest(scenario=scenario):
-                self.fixture = json.loads(original)
-                self.fixture["buckets"].pop(self.bucket)
-                self.fixture["buckets"][other_bucket] = {
-                    "versions": [],
-                    "objects": [key],
-                }
-                self.fixture["remote"] = {key: state()}
-                if scenario == "active":
-                    self.fixture["remote"][key] = state(
-                        resource("aws_vpc", "vpc", "vpc-staging")
-                    )
-                elif scenario == "workspace":
-                    workspace = "env:/other/state"
-                    self.fixture["buckets"][other_bucket]["objects"].append(workspace)
-                    self.fixture["remote"][workspace] = state(
-                        resource("aws_vpc", "vpc", "vpc-workspace")
-                    )
-                elif scenario == "unreadable":
-                    self.fixture["errors"] = {"s3/cp": "AccessDenied"}
-                self.persist()
-                result = self.invoke()
-                current = self.current()
-                if scenario == "unreadable":
-                    self.assertNotEqual(result.returncode, 0, result.stdout)
-                    self.assertIn("AccessDenied", result.stderr)
-                else:
-                    self.assert_success(result)
-                if scenario == "empty":
-                    self.assertFalse(current["table_exists"])
-                else:
-                    self.assertTrue(current["table_exists"])
-                    self.assertFalse(self.destructive())
-                    if scenario != "unreadable":
-                        self.assertIn("bootstrap retained", result.stdout)
-                self.assertTrue(
-                    any(
-                        "s3://{}/{}".format(other_bucket, key) in call
-                        for call in current["calls"]
-                    )
-                )
-
-    def test_missing_local_state_preserves_only_bootstrap(self):
-        self.fixture["errors"] = {"dynamodb/describe-table": "AccessDenied"}
-        self.persist()
-        (self.project / "terraform/bootstrap/terraform.tfstate").unlink()
-        result = self.invoke()
-        self.assert_success(result)
-        self.assertIn("bootstrap retained", result.stdout)
-        self.assertIn("local bootstrap state is missing", result.stdout)
-        current = self.current()
-        self.assertFalse(current["remote"]["cms_demo.sandbox.json"]["resources"])
-        self.assertFalse(current["remote"]["cms-demo.github.json"]["resources"])
-        self.assertIn(self.bucket, current["buckets"])
-        self.assertTrue(current["table_exists"])
-        self.assertTrue(current["remote"])
-        self.assertFalse(any("describe-table" in c for c in current["calls"]))
-        self.assertFalse(
-            any(c[0] == "tofu" and "bootstrap" in c[1] for c in current["calls"])
-        )
-
-    def test_missing_local_state_and_backend_is_recovery_error(self):
-        self.fixture["buckets"].pop(self.bucket)
-        self.persist()
-        (self.project / "terraform/bootstrap/terraform.tfstate").unlink()
-        self.assertNotEqual(self.invoke().returncode, 0)
-        self.assertFalse(self.destructive())
-
-    def configure_legacy_talos_secrets(self):
-        path = self.project / "bootstrap-cluster/Taskfile.yml"
-        path.write_text(
-            path.read_text()
-            .replace("k3s:", "talos:")
-            .replace("./k3s.yaml", "./talos.yaml")
-        )
-        # Task eagerly parses included files; generate a real Talos adapter.
-        talos = generate_project(
-            self.case / "talos",
-            copier__operating_system="talos",
-            copier__aws_account_id=ACCOUNT,
-        )
-        shutil.copyfile(
-            talos / "bootstrap-cluster/talos.yaml",
-            self.project / "bootstrap-cluster/talos.yaml",
-        )
-        for suffix in ("_kubeconfig", "_talosconfig_yaml", "_talos_controlplane_yaml"):
-            name = "sandbox" + suffix
-            self.fixture["secrets"][name] = {
-                "ARN": "arn:aws:secretsmanager:us-east-1:{}:secret:{}".format(
-                    ACCOUNT, name
-                )
-            }
-
-    def test_talos_legacy_secrets_are_retained_without_blocking(self):
-        self.configure_legacy_talos_secrets()
-        self.persist()
-        result = self.invoke()
-        self.assert_success(result)
-        self.assertEqual(len(self.current()["secrets"]), 3)
-        self.assertIn("Legacy secret preserved", result.stdout)
-
-    def test_bootstrap_recovery_reports_retained_talos_secrets(self):
-        self.configure_legacy_talos_secrets()
-        self.fixture["fail_apply"] = {"bootstrap": 1}
-        self.persist()
-        self.assertNotEqual(self.invoke().returncode, 0)
-        self.fixture = self.current()
-        self.assertNotIn(self.bucket, self.fixture["buckets"])
-        self.assertTrue(self.fixture["table_exists"])
-        self.fixture["calls"] = []
-        self.fixture["secrets"]["sandbox_talosconfig_yaml"]["Tags"] = [
-            {"Key": "application", "Value": "cms-demo"},
-            {"Key": "environment", "Value": "sandbox"},
-        ]
-        self.persist()
-        result = self.invoke()
-        self.assert_success(result)
-        for name in ("sandbox_kubeconfig", "sandbox_talos_controlplane_yaml"):
-            self.assertIn(
-                "Legacy secret preserved (ownership unverified): " + name, result.stdout
-            )
-        self.assertNotIn("delete secret:", result.stdout)
-        self.assertFalse(
-            any("delete-secret" in call for call in self.current()["calls"])
-        )
-        self.assertEqual(self.current()["secrets"], self.fixture["secrets"])
-        self.assertFalse(self.current()["table_exists"])
-
-    def test_documented_update_preserves_customizations_and_finishes_legacy_failure(
-        self,
-    ):
-        taskfile = self.project / "Taskfile.yml"
-        legacy = ROOT / "tests/fixtures/teardown_legacy"
-        renderer = Environment(undefined=StrictUndefined)
-        previous = yaml.safe_load(
-            renderer.from_string((legacy / "Taskfile.yml.jinja").read_text()).render(
-                copier__project_dash="cms-demo",
-                copier__aws_region="us-east-1",
-                copier__aws_account_id=ACCOUNT,
-                copier__operating_system="k3s",
-            )
-        )
-        terraform_taskfile = self.project / "terraform/Taskfile.yml"
-        previous_tf = yaml.safe_load(
-            renderer.from_string(
-                (legacy / "terraform-Taskfile.yml.jinja").read_text()
-            ).render()
-        )
-        previous_tf["tasks"]["custom-terraform-task"] = {
-            "cmds": ["echo custom-terraform"]
-        }
-        previous_tf["vars"] = {"CUSTOM_TERRAFORM_SETTING": "preserved"}
-        terraform_taskfile.write_text(yaml.safe_dump(previous_tf, sort_keys=False))
-        previous["tasks"]["custom-project-task"] = {"cmds": ["echo custom-preserved"]}
-        previous["vars"]["CUSTOM_SETTING"] = "preserved"
-        taskfile.write_text(yaml.safe_dump(previous, sort_keys=False))
-        helper = self.project / "terraform/scripts/teardown.py"
-        helper.unlink()
-        failed = subprocess.run(
-            [TASK, "--yes", "teardown-sandbox"],
-            cwd=self.project,
-            env=self.env,
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-        self.assertNotEqual(failed.returncode, 0)
-        self.assertIn("BucketNotEmpty", failed.stderr)
-        self.assertNotIn("i-one", self.current()["nodes"])
-        # Transfer only the documented rendered helper/task bodies; no setup,
-        # normal apply, or replacement of the user's custom tasks/variables.
-        source = self.case / "fixed-template"
-        rendered = self.case / "update-render"
-        export_template_source(source)
-        answers = self.project / ".copier-answers.yml"
-        old_answers = yaml.safe_load(answers.read_text())
-        old_answers.pop("copier__use_wagtail", None)
-        answers.write_text(yaml.safe_dump(old_answers))
-        before = answers.read_bytes()
-        rendered_result = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "copier",
-                "copy",
-                "--defaults",
-                "--skip-tasks",
-                "--data-file",
-                str(answers),
-                "--vcs-ref=HEAD",
-                str(source),
-                str(rendered),
-            ],
-            env=self.env,
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-        self.assertEqual(rendered_result.returncode, 0, rendered_result.stderr)
-        self.assertEqual(answers.read_bytes(), before)
-        fixed = yaml.safe_load((rendered / "Taskfile.yml").read_text())
-        shutil.copyfile(rendered / "terraform/scripts/teardown.py", helper)
-        for name in (
-            "teardown-environment",
-            "teardown-sandbox",
-            "teardown-staging",
-            "delete-ecr-images",
-            "clean-s3-bucket-only",
-        ):
-            previous["tasks"][name] = fixed["tasks"][name]
-        taskfile.write_text(yaml.safe_dump(previous, sort_keys=False))
-        fixed_tf = yaml.safe_load((rendered / "terraform/Taskfile.yml").read_text())
-        for name in (
-            "teardown",
-            "destroy-environment-dir",
-            "destroy-github-dir",
-            "destroy-bootstrap-dir",
-            "clean-s3-bucket",
-        ):
-            previous_tf["tasks"][name] = fixed_tf["tasks"][name]
-        previous_tf["tasks"].pop("destroy-terraform")
-        terraform_taskfile.write_text(yaml.safe_dump(previous_tf, sort_keys=False))
-        self.assert_success(self.invoke())
-        self.assertIn("custom-project-task", taskfile.read_text())
-        self.assertIn("CUSTOM_SETTING", taskfile.read_text())
-        self.assertIn("custom-terraform-task", terraform_taskfile.read_text())
-        self.assertIn("CUSTOM_TERRAFORM_SETTING", terraform_taskfile.read_text())
-        self.assertFalse(self.current()["buckets"])
-
     def test_shared_discovery_errors_are_preflight_failures(self):
-        for operation in ("iam/list-roles", "secretsmanager/describe-secret"):
+        for operation in ("s3api/list-objects-v2", "ecr/list-images"):
             with self.subTest(operation=operation):
                 self.fixture["calls"] = []
                 self.fixture["errors"] = {operation: "AccessDenied"}
@@ -794,7 +579,7 @@ class TeardownTests(unittest.TestCase):
                 self.assertNotEqual(self.invoke().returncode, 0)
                 self.assertFalse(self.destructive())
 
-    def test_fresh_plan_cannot_expand_scope_after_cleanup(self):
+    def test_fresh_plan_cannot_expand_scope_after_node_shutdown(self):
         self.fixture.update(expand_scope=True, expand_after_preflight=True)
         self.persist()
         result = self.invoke()
@@ -805,7 +590,7 @@ class TeardownTests(unittest.TestCase):
         )
         self.assertIn(self.bucket, self.current()["buckets"])
 
-    def test_mutation_actions_are_rejected_before_cleanup(self):
+    def test_mutation_actions_are_rejected_before_node_shutdown(self):
         for action in (["create"], ["update"], ["delete", "create"], ["forget"]):
             with self.subTest(action=action):
                 self.fixture["calls"] = []
@@ -840,113 +625,6 @@ class TeardownTests(unittest.TestCase):
         self.persist()
         self.assert_success(self.invoke())
 
-    def test_backend_region_does_not_select_application_secrets(self):
-        backend_region = "eu-west-1"
-        application_region = "us-east-1"
-        self.fixture["buckets"][self.bucket]["region"] = backend_region
-        self.fixture["bootstrap"]["resources"][1]["instances"][0]["attributes"][
-            "arn"
-        ] = "arn:aws:dynamodb:{}:{}:table/{}".format(
-            backend_region, ACCOUNT, self.bucket
-        )
-        bootstrap = self.project / "terraform/bootstrap/init.tf"
-        bootstrap.write_text(
-            bootstrap.read_text().replace(
-                "region = module.global_variables.aws_region",
-                'region = "{}"'.format(backend_region),
-            )
-        )
-        for item in self.fixture["remote"]["cms_demo.sandbox.json"]["resources"]:
-            if item["type"] == "aws_s3_bucket":
-                item["instances"][0]["attributes"]["region"] = application_region
-        for stack, key in self.fixture["keys"].items():
-            directory = self.project / "terraform" / stack / ".terraform"
-            directory.mkdir()
-            (directory / "terraform.tfstate").write_text(
-                json.dumps(
-                    {
-                        "backend": {
-                            "type": "s3",
-                            "config": {
-                                "bucket": self.bucket,
-                                "key": key,
-                                "region": backend_region,
-                                "dynamodb_table": self.bucket,
-                            },
-                        }
-                    }
-                )
-            )
-        name = "cms_demo_sandbox_kubeconfig"
-        self.fixture["secrets_by_region"] = {
-            region: {
-                name: {
-                    "ARN": "arn:aws:secretsmanager:{}:{}:secret:{}-abc123".format(
-                        region, ACCOUNT, name
-                    )
-                }
-            }
-            for region in (backend_region, application_region)
-        }
-        protected = self.fixture["secrets_by_region"][backend_region].copy()
-        self.persist()
-        self.assert_success(self.invoke())
-        current = self.current()
-        self.assertEqual(current["secrets_by_region"][application_region], {})
-        self.assertEqual(current["secrets_by_region"][backend_region], protected)
-        for call in current["calls"]:
-            if "secretsmanager" in call:
-                self.assertEqual(call[call.index("--region") + 1], application_region)
-            if "dynamodb" in call or ("s3api" in call and self.bucket in call):
-                self.assertEqual(call[call.index("--region") + 1], backend_region)
-
-    def test_bootstrap_table_identity_includes_region(self):
-        original = json.dumps(self.fixture)
-        for location in ("local", "refreshed", "plan", "missing"):
-            with self.subTest(location=location):
-                self.fixture = json.loads(original)
-                values = self.fixture["bootstrap"]["resources"][1]["instances"][0][
-                    "attributes"
-                ]
-                if location == "local":
-                    values["arn"] = values["arn"].replace("us-east-1", "eu-west-1")
-                elif location == "missing":
-                    values.pop("arn")
-                else:
-                    self.fixture["bootstrap_" + location + "_region"] = "eu-west-1"
-                self.persist()
-                result = self.invoke()
-                self.assertNotEqual(result.returncode, 0, result.stdout)
-                self.assertIn("bootstrap table", result.stderr)
-                self.assertFalse(self.destructive())
-                self.assertTrue(self.current()["table_exists"])
-
-    def test_commented_region_cannot_redirect_secret_cleanup(self):
-        path = self.project / "terraform/modules/global_variables/main.tf"
-        path.write_text(
-            '/*\noutput "aws_region" {\n  value = "us-west-2"\n}\n*/\n'
-            + path.read_text()
-        )
-        for item in self.fixture["remote"]["cms_demo.sandbox.json"]["resources"]:
-            if item["type"] == "aws_s3_bucket":
-                item["instances"][0]["attributes"]["region"] = "us-east-1"
-        name = "cms_demo_sandbox_kubeconfig"
-        self.fixture["secrets_by_region"] = {
-            region: {
-                name: {
-                    "ARN": "arn:aws:secretsmanager:{}:{}:secret:{}-abc123".format(
-                        region, ACCOUNT, name
-                    )
-                }
-            }
-            for region in ("us-east-1", "us-west-2")
-        }
-        protected = self.fixture["secrets_by_region"]["us-west-2"].copy()
-        self.persist()
-        self.assert_success(self.invoke())
-        self.assertEqual(self.current()["secrets_by_region"]["us-east-1"], {})
-        self.assertEqual(self.current()["secrets_by_region"]["us-west-2"], protected)
-
     def test_custom_bucket_keeps_terraform_deletion_policy(self):
         original = json.dumps(self.fixture)
         for module, name in (
@@ -970,7 +648,8 @@ class TeardownTests(unittest.TestCase):
                 self.persist()
                 result = self.invoke()
                 self.assertNotEqual(result.returncode, 0, result.stdout)
-                self.assertIn("BucketNotEmpty", result.stderr)
+                self.assertIn("Non-empty protected storage", result.stderr)
+                self.assertFalse(self.destructive())
                 current = self.current()
                 self.assertEqual(current["buckets"][bucket]["objects"], ["audit.log"])
                 self.assertFalse(
@@ -1064,23 +743,6 @@ class TeardownTests(unittest.TestCase):
         self.assertIn("Python 3.9", result.stderr)
         self.assertFalse(self.destructive())
 
-    def test_empty_local_state_does_not_hide_existing_table(self):
-        self.fixture["buckets"].pop(self.bucket)
-        self.fixture["bootstrap"] = state()
-        self.persist()
-        self.assertNotEqual(self.invoke().returncode, 0)
-        self.assertFalse(self.destructive())
-
-    def test_empty_local_state_cannot_authorize_live_backend_cleanup(self):
-        self.fixture["bootstrap"] = state()
-        self.persist()
-        result = self.invoke()
-        self.assert_success(result)
-        self.assertIn("bootstrap retained", result.stdout)
-        self.assertIn(self.bucket, self.current()["buckets"])
-        self.assertTrue(self.current()["table_exists"])
-        self.assertFalse(self.current()["remote"]["cms_demo.sandbox.json"]["resources"])
-
     def test_s3_region_comes_from_bucket_state(self):
         self.fixture["buckets"][self.static]["region"] = "us-west-2"
         item = self.fixture["remote"]["cms_demo.sandbox.json"]["resources"][1]
@@ -1113,31 +775,19 @@ class TeardownTests(unittest.TestCase):
         self.assertIn("oidc.tf:25", error)
         self.assertNotIn("SENSITIVE_TEST_PAYLOAD", error)
 
-    def test_invalid_local_state_cannot_become_successful_noop(self):
-        self.fixture["buckets"].pop(self.bucket)
-        self.fixture["table_exists"] = False
-        self.persist()
-        path = self.project / "terraform/bootstrap/terraform.tfstate"
-        path.write_text('{"version":4}')
-        self.assertNotEqual(self.invoke().returncode, 0)
-        self.assertFalse(self.destructive())
-
     def test_missing_resource_inventory_stops_before_any_deletion(self):
         pristine = json.loads(json.dumps(self.fixture))
         incomplete = state()
         incomplete.pop("resources")
-        for location in ("sandbox", "staging", "bootstrap"):
+        for location in ("sandbox", "staging"):
             with self.subTest(location=location):
                 self.fixture = json.loads(json.dumps(pristine))
-                if location == "bootstrap":
-                    self.fixture["bootstrap"] = incomplete
-                else:
-                    key = (
-                        "cms_demo.sandbox.json"
-                        if location == "sandbox"
-                        else "cms-demo.staging.json"
-                    )
-                    self.fixture["remote"][key] = incomplete
+                key = (
+                    "cms_demo.sandbox.json"
+                    if location == "sandbox"
+                    else "cms-demo.staging.json"
+                )
+                self.fixture["remote"][key] = incomplete
                 self.persist()
                 result = self.invoke()
                 self.assertNotEqual(result.returncode, 0)
@@ -1154,9 +804,9 @@ class TeardownTests(unittest.TestCase):
             "sandbox apply: warning: ELB ENI cleanup (AuthFailure)", result.stderr
         )
         self.assertIn("remaining managed resources will be checked", result.stderr)
-        self.assertIn("Infrastructure teardown completed", result.stdout)
-        self.assertFalse(self.current()["buckets"])
-        self.assertFalse(self.current()["table_exists"])
+        self.assertIn("Environment teardown completed", result.stdout)
+        self.assertEqual(set(self.current()["buckets"]), {self.bucket})
+        self.assertTrue(self.current()["table_exists"])
         self.assertFalse(self.current()["repositories"])
 
     def test_elb_warning_does_not_hide_apply_failure(self):
@@ -1172,7 +822,7 @@ class TeardownTests(unittest.TestCase):
             "sandbox apply: error: OpenTofu diagnostic (InjectedInterruption)",
             result.stderr,
         )
-        self.assertNotIn("Infrastructure teardown completed", result.stdout)
+        self.assertNotIn("Environment teardown completed", result.stdout)
         self.assertIn(self.bucket, self.current()["buckets"])
         self.assertTrue(self.current()["remote"]["cms_demo.sandbox.json"]["resources"])
 

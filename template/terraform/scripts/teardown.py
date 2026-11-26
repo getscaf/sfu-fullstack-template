@@ -16,7 +16,6 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from urllib.parse import unquote
 
 
 class TeardownError(Exception):
@@ -262,10 +261,7 @@ def run(args, cwd=None, timeout=300):
                 "s3",
                 "ec2",
                 "ecr",
-                "iam",
                 "sts",
-                "secretsmanager",
-                "dynamodb",
             )
             position = next((i for i, arg in enumerate(args) if arg in services), None)
             if position is not None:
@@ -469,18 +465,19 @@ class Teardown:
             raise TeardownError("Production teardown remains disabled")
         config = (self.terraform / "modules/global_variables/main.tf").read_text()
         self.account = literal(config, r'output\s+"account_id"', "value")
-        self.application = literal(config, r'output\s+"application"', "value")
         self.application_region = literal(config, r'output\s+"aws_region"', "value")
-        github = (self.terraform / "github/oidc.tf").read_text()
-        role = literal(
-            github, r'resource\s+"aws_iam_role"\s+"github_oidc_role"', "name"
-        )
-        self.slug = role.removesuffix("-github-oidc-role")
-        cluster = (self.root / "bootstrap-cluster/Taskfile.yml").read_text()
-        modes = re.findall(r"(?m)^  (k3s|talos):\s*$", cluster)
-        if len(modes) != 1:
-            raise TeardownError("Cannot determine configured cluster OS")
-        self.os = modes[0]
+        policy_path = self.terraform / self.environment / "teardown-policy.json"
+        self.disposable = False
+        if self.environment == "sandbox" and policy_path.is_file():
+            policy = decode(policy_path.read_text(), "sandbox teardown policy")
+            if (
+                not isinstance(policy, dict)
+                or type(policy.get("disposable")) is not bool
+            ):
+                raise TeardownError(
+                    "Sandbox teardown policy must declare a boolean disposable"
+                )
+            self.disposable = policy["disposable"]
         self.backends = {}
         for stack in ("sandbox", "staging", "prod", "github"):
             file = (
@@ -498,9 +495,6 @@ class Teardown:
             )
         self.backend_region = self.backend_config["region"]
         self.bucket = self.backend_config["bucket"]
-        self.table = self.backend_config.get("dynamodb_table")
-        if not self.table:
-            raise TeardownError("Cannot resolve the configured bootstrap lock table")
         if os.environ.get("TF_WORKSPACE", "default") != "default":
             raise TeardownError(
                 "Select the default workspace; additional workspaces are retained, not guessed"
@@ -508,10 +502,6 @@ class Teardown:
         self.phase = "preflight"
         self.states = {}
         self.approved = {}
-        self.keep = []
-        self.keep_bootstrap = []
-        self.secrets = []
-        self.retained_secrets = []
 
     def data_dir(self, stack):
         configured = Path(os.environ.get("TF_DATA_DIR", ".terraform"))
@@ -585,26 +575,6 @@ class Teardown:
             timeout=7200 if args[0] == "apply" else 300,
         )
 
-    def pages(self, service, operation, *args, region=None):
-        token_args = []
-        while True:
-            page = self.aws(service, operation, *args, *token_args, region=region)
-            yield page
-            if page.get("IsTruncated"):
-                if operation == "list-object-versions":
-                    token_args = ["--key-marker", page["NextKeyMarker"]]
-                    if page.get("NextVersionIdMarker"):
-                        token_args += [
-                            "--version-id-marker",
-                            page["NextVersionIdMarker"],
-                        ]
-                elif page.get("NextContinuationToken"):
-                    token_args = ["--continuation-token", page["NextContinuationToken"]]
-                else:
-                    token_args = ["--marker", page.get("Marker") or page["NextMarker"]]
-            else:
-                break
-
     def bucket_exists(self, bucket, region):
         try:
             result = self.aws(
@@ -649,69 +619,6 @@ class Teardown:
         state = decode_state(text, backend["key"])
         return state
 
-    def local_bootstrap(self, required=True):
-        workspace = self.data_dir("bootstrap") / "environment"
-        if workspace.exists() and workspace.read_text().strip() != "default":
-            raise TeardownError(
-                "Bootstrap recovery requires the original default workspace"
-            )
-        path = self.terraform / "bootstrap/terraform.tfstate"
-        metadata = self.data_dir("bootstrap") / "terraform.tfstate"
-        if metadata.exists():
-            backend = decode(metadata.read_text(), "bootstrap backend").get(
-                "backend", {}
-            )
-            if backend.get("type") != "local":
-                raise TeardownError(
-                    "Bootstrap recovery requires its original local backend"
-                )
-            configured = backend.get("config", {}).get("path")
-            if configured:
-                path = Path(configured)
-                if not path.is_absolute():
-                    path = self.terraform / "bootstrap" / path
-        if not path.is_file():
-            if not required:
-                self.keep_bootstrap.append("original local bootstrap state is missing")
-                return {"version": 4, "resources": []}
-            raise TeardownError(
-                "Original local bootstrap state is missing; restore it before teardown"
-            )
-        state = decode_state(path.read_text(), "local bootstrap state")
-        self.validate_bootstrap(state)
-        return state
-
-    def validate_bootstrap(self, state):
-        for item in resources(state, "bootstrap"):
-            self.validate_bootstrap_resource(item["type"], item["values"])
-
-    def validate_bootstrap_resource(self, kind, attrs):
-        if kind in ("aws_s3_bucket", "aws_s3_bucket_versioning"):
-            if (attrs.get("bucket") or attrs["id"]) != self.bucket:
-                raise TeardownError(
-                    "Local bootstrap bucket does not match the configured backend"
-                )
-        if kind == "aws_dynamodb_table":
-            arn = attrs.get("arn")
-            parts = arn.split(":", 5) if isinstance(arn, str) else []
-            if (
-                attrs["id"] != self.table
-                or (attrs.get("name") or attrs["id"]) != self.table
-                or len(parts) != 6
-                or parts[0] != "arn"
-                or parts[2:]
-                != [
-                    "dynamodb",
-                    self.backend_region,
-                    self.account,
-                    "table/" + self.table,
-                ]
-                or attrs.get("region", self.backend_region) != self.backend_region
-            ):
-                raise TeardownError(
-                    "Local bootstrap table does not match the configured backend account/region/name"
-                )
-
     def validate_account(self, items):
         for item in items:
             arn = item["values"].get("arn") or ""
@@ -731,12 +638,6 @@ class Teardown:
             item["values"].get("name") or item["values"]["id"],
         )
 
-    def application_bucket(self, item):
-        return item["address"] in {
-            "module.cluster.aws_s3_bucket.static_storage",
-            "module.cluster.aws_s3_bucket.backups",
-        }
-
     def bucket_identity(self, item):
         return item["values"].get("bucket") or item["values"]["id"]
 
@@ -747,12 +648,12 @@ class Teardown:
             if r["type"] == "aws_ecr_repository"
         }
         selected_buckets = {
-            self.bucket_identity(r) for r in selected if self.application_bucket(r)
+            self.bucket_identity(r) for r in selected if r["type"] == "aws_s3_bucket"
         }
         backend_buckets = {backend["bucket"] for backend in self.backends.values()}
         if selected_buckets & backend_buckets:
             raise TeardownError(
-                "Application S3 ownership overlaps with a configured state backend; resolve ownership before teardown"
+                "S3 ownership overlaps with a configured state backend; resolve ownership before teardown"
             )
         for stack, state in self.states.items():
             if stack == self.environment:
@@ -785,202 +686,81 @@ class Teardown:
             raise TeardownError(
                 "AWS caller account does not match project configuration"
             )
-        self.backend_present = self.bucket_exists(self.bucket, self.backend_region)
-        self.states["bootstrap"] = self.local_bootstrap(
-            required=not self.backend_present
-        )
-        bootstrap_items = resources(self.states["bootstrap"], "bootstrap")
-        if self.backend_present and not any(
-            item["type"] == "aws_s3_bucket" for item in bootstrap_items
-        ):
-            if not self.keep_bootstrap:
-                self.keep_bootstrap.append(
-                    "local bootstrap state does not track aws_s3_bucket"
-                )
-        # Retained bootstrap needs no additional IAM/DynamoDB inspection. Only
-        # require those permissions when this run will actually finalize it.
-        if not self.keep_bootstrap:
-            self.table_present = self.table_exists()
-            if self.table_present and not any(
-                item["type"] == "aws_dynamodb_table" for item in bootstrap_items
-            ):
-                if not self.backend_present:
-                    raise TeardownError(
-                        "A live backend resource is missing from local bootstrap state; restore the original state"
-                    )
-                self.keep_bootstrap.append(
-                    "local bootstrap state does not track aws_dynamodb_table"
-                )
-        self.inspect_remote_states()
-        if not self.backend_present:
-            return self.prepare_bootstrap_recovery()
-        selected = resources(self.states[self.environment], self.environment)
-        self.check_storage_ownership(selected)
-        if not self.keep:
-            # Avoid initializing a GitHub stack already known to be shared.
-            self.inspect_oidc()
-        self.inspect_secrets()
-        stacks = [self.environment]
-        if not self.keep:
-            stacks += ["github"]
-            if not self.keep_bootstrap:
-                stacks += ["bootstrap"]
-        for stack in stacks:
-            if self.keep and stack in ("github", "bootstrap"):
-                continue
-            self.approve_stack(stack)
+        if not self.bucket_exists(self.bucket, self.backend_region):
+            raise TeardownError(
+                "State backend bucket is missing; cannot verify environment teardown"
+            )
+        selected = self.read_remote(self.backend_config)
+        if "serial" not in selected:
+            raise TeardownError(
+                "Environment has no recorded state; cannot verify teardown"
+            )
+        self.states[self.environment] = selected
+        items = resources(selected, self.environment)
+        self.validate_account(items)
+        if not items:
+            print(
+                "Environment teardown already complete; shared GitHub and bootstrap retained."
+            )
+            return False
+        self.inspect_other_states()
+        self.check_storage_ownership(items)
+        stack = self.environment
+        self.tofu(stack, "init", "-input=false", "-no-color")
+        fresh = self.pull(stack)
+        self.states[stack] = fresh
+        items = resources(fresh, stack)
+        self.validate_account(items)
+        self.check_storage_ownership(items)
+        approved = {}
+        for item in items:
+            approved.setdefault(item["address"], set()).add(item["values"]["id"])
+        self.approved[stack] = approved
+        self.check_plan(stack)
         return True
 
-    def inspect_remote_states(self):
+    def inspect_other_states(self):
         buckets = {}
         for stack, backend in self.backends.items():
-            if not self.backend_present:
-                if backend["bucket"] == self.bucket:
-                    # This bucket is confirmed absent; do not try to initialize it.
-                    self.states[stack] = {"version": 4, "resources": []}
-                    continue
-                if (backend.get("dynamodb_table"), backend["region"]) != (
-                    self.table,
-                    self.backend_region,
-                ):
-                    continue
-            self.states[stack] = self.read_remote(backend)
+            if stack != self.environment:
+                self.states[stack] = self.read_remote(backend)
             buckets.setdefault((backend["bucket"], backend["region"]), backend)
         for (bucket, region), backend in buckets.items():
             known = {b["key"] for b in self.backends.values() if b["bucket"] == bucket}
-            for page in self.pages(
-                "s3api",
-                "list-objects-v2",
-                "--bucket",
-                bucket,
-                "--expected-bucket-owner",
-                self.account,
-                region=region,
-            ):
+            cursor = []
+            while True:
+                page = self.aws(
+                    "s3api",
+                    "list-objects-v2",
+                    "--bucket",
+                    bucket,
+                    "--expected-bucket-owner",
+                    self.account,
+                    *cursor,
+                    region=region,
+                )
                 for obj in page.get("Contents", []):
                     key = obj["Key"]
-                    if key in known:
-                        continue
-                    extra = dict(backend, key=key)
-                    self.states["extra:" + bucket + "/" + key] = self.read_remote(extra)
-                    self.keep.append(
-                        "unclassified backend entry {}/{}".format(bucket, key)
+                    if key not in known:
+                        self.states["extra:" + bucket + "/" + key] = self.read_remote(
+                            dict(backend, key=key)
+                        )
+                if not page.get("IsTruncated"):
+                    break
+                token = page.get("NextContinuationToken")
+                if not token or cursor == ["--continuation-token", token]:
+                    raise TeardownError(
+                        "Cannot finish listing backend bucket {}".format(bucket)
                     )
+                cursor = ["--continuation-token", token]
         for stack, state in self.states.items():
-            items = resources(state, stack)
-            self.validate_account(items)
-            if stack in (self.environment, "bootstrap") or (
-                stack == "github" and self.backend_present
-            ):
-                continue
-            if items:
-                self.keep.append("active state {}".format(stack))
-
-    def inspect_oidc(self):
-        items = resources(
-            self.states.get("github", {"version": 4, "resources": []}), "github"
-        )
-        providers = {
-            r["values"].get("arn") or r["values"]["id"]
-            for r in items
-            if r["type"] == "aws_iam_openid_connect_provider"
-        }
-        if not providers:
-            return
-        own_roles = {
-            r["values"].get("arn") for r in items if r["type"] == "aws_iam_role"
-        }
-        for page in self.pages("iam", "list-roles"):
-            for role in page.get("Roles", []):
-                if role.get("Arn") in own_roles:
-                    continue
-                policy = role.get("AssumeRolePolicyDocument", {})
-                if isinstance(policy, str):
-                    policy = decode(unquote(policy), "IAM trust policy")
-
-                def references(value):
-                    if isinstance(value, str):
-                        return value in providers
-                    if isinstance(value, dict):
-                        return any(references(v) for v in value.values())
-                    if isinstance(value, list):
-                        return any(references(v) for v in value)
-                    return False
-
-                if references(policy):
-                    reason = "OIDC provider used by role {}".format(role["Arn"])
-                    if reason not in self.keep:
-                        self.keep.append(reason)
-
-    def inspect_secrets(self):
-        names = [self.slug + "_" + self.environment + "_kubeconfig"]
-        if self.os == "talos":
-            names = [
-                self.environment + suffix
-                for suffix in (
-                    "_kubeconfig",
-                    "_talosconfig_yaml",
-                    "_talos_controlplane_yaml",
-                )
-            ]
-        for name in names:
-            try:
-                value = self.aws(
-                    "secretsmanager",
-                    "describe-secret",
-                    "--secret-id",
-                    name,
-                    region=self.application_region,
-                )
-            except CommandError as error:
-                if error.code == "ResourceNotFoundException":
-                    continue
-                raise
-            tags = {t["Key"]: t["Value"] for t in value.get("Tags", [])}
-            if self.os == "talos" and not (
-                tags.get("application") == self.application
-                and tags.get("environment") == self.environment
-            ):
-                self.retained_secrets.append(name)
-            else:
-                self.secrets.append(value["ARN"])
+            self.validate_account(resources(state, stack))
 
     def pull(self, stack):
         state = decode_state(
             self.tofu(stack, "state", "pull"), "{} state".format(stack)
         )
         return state
-
-    def approve_stack(self, stack):
-        items = resources(self.states[stack], stack)
-        self.validate_account(items)
-        if not items:
-            return
-        if (
-            stack == "github"
-            and '"gh"' in (self.terraform / "github/oidc.tf").read_text()
-            and not shutil.which("gh")
-        ):
-            raise TeardownError("gh is required for the remaining GitHub destroy plan")
-        self.tofu(stack, "init", "-input=false", "-no-color")
-        fresh = self.pull(stack)
-        self.validate_account(resources(fresh, stack))
-        if stack == "bootstrap":
-            self.validate_bootstrap(fresh)
-        if stack == self.environment:
-            self.check_storage_ownership(resources(fresh, stack))
-        self.states[stack] = fresh
-        if stack == "github":
-            # Keep the second guard: it checks freshly pulled ownership, not
-            # the earlier remote snapshot used to schedule the stack.
-            self.inspect_oidc()
-            if self.keep:
-                return
-        approved = {}
-        for item in resources(fresh, stack):
-            approved.setdefault(item["address"], set()).add(item["values"]["id"])
-        self.approved[stack] = approved
-        self.check_plan(stack)
 
     def check_plan(self, stack, apply=False):
         with tempfile.TemporaryDirectory(prefix="scaf-destroy-") as directory:
@@ -989,6 +769,7 @@ class Teardown:
                 stack, "plan", "-destroy", "-input=false", "-no-color", "-out=" + plan
             )
             value = decode(self.tofu(stack, "show", "-json", plan), "destroy plan")
+            planned = []
             for change in value.get("resource_changes", []):
                 if change.get("mode") == "data":
                     if change["change"]["actions"] not in (
@@ -1011,62 +792,118 @@ class Teardown:
                             change["address"]
                         )
                     )
-                if stack == "bootstrap":
-                    if not change.get("type"):
-                        raise TeardownError(
-                            "Missing resource type in bootstrap destroy plan"
-                        )
-                    self.validate_bootstrap_resource(change["type"], action["before"])
+                if action["actions"] == ["delete"]:
+                    planned.append(
+                        {
+                            "address": change["address"],
+                            "type": change["type"],
+                            "values": action["before"],
+                        }
+                    )
+            self.validate_account(planned)
+            self.check_storage_ownership(planned)
+            self.check_deletion_policy(planned)
             if apply:
                 self.tofu(stack, "apply", "-input=false", "-no-color", plan)
 
-    def prepare_bootstrap_recovery(self):
-        if self.keep:
-            print(
-                "Backend bucket is absent; bootstrap retained: {}.".format(
-                    "; ".join(self.keep)
+    def check_deletion_policy(self, planned):
+        blocked = []
+        lock_tables = {
+            (b.get("dynamodb_table"), b["region"]) for b in self.backends.values()
+        }
+        for item in planned:
+            kind, values = item["type"], item["values"]
+            address = item["address"]
+            if (
+                kind == "aws_dynamodb_table"
+                and (values["id"], self.resource_region(item)) in lock_tables
+            ):
+                raise TeardownError(
+                    "Destroy plan includes a configured backend lock table"
+                )
+            if kind == "aws_secretsmanager_secret":
+                if not self.disposable and values.get("recovery_window_in_days") == 0:
+                    raise TeardownError(
+                        "{} would be deleted without a recovery window".format(address)
+                    )
+                continue
+            if kind not in ("aws_s3_bucket", "aws_ecr_repository"):
+                continue
+            flag = "force_destroy" if kind == "aws_s3_bucket" else "force_delete"
+            if values.get(flag) is True:
+                if not self.disposable:
+                    raise TeardownError(
+                        "{} enables {}; protected teardown cannot proceed".format(
+                            address, flag
+                        )
+                    )
+                continue
+            region = self.resource_region(item)
+            if kind == "aws_s3_bucket":
+                name = self.bucket_identity(item)
+                if self.bucket_contains_data(name, region):
+                    blocked.append("S3 bucket {}".format(name))
+            else:
+                name = values.get("name") or values["id"]
+                if self.repository_contains_images(name, region):
+                    blocked.append("ECR repository {}".format(name))
+        if blocked:
+            raise TeardownError(
+                "Non-empty protected storage: {}. Review and clear its contents separately before retrying".format(
+                    ", ".join(blocked)
                 )
             )
-            return False
-        items = resources(self.states["bootstrap"], "bootstrap")
-        self.validate_account(items)
-        if not items or self.os == "talos":
-            self.inspect_secrets()
-            # Recovery only destroys bootstrap; discovery reports legacy secrets.
-            self.secrets.clear()
-        if not items:
-            print(
-                "Teardown already complete for the known backend scope; bucket and table are absent."
-            )
-            for name in self.retained_secrets:
-                print("Legacy secret preserved (ownership unverified): {}".format(name))
-            return False
-        print(
-            "Backend bucket is absent; recovering only resources in local bootstrap state."
-        )
-        self.approve_stack("bootstrap")
-        return True
 
-    def table_exists(self):
+    def bucket_contains_data(self, name, region):
         try:
-            self.aws(
-                "dynamodb",
-                "describe-table",
-                "--table-name",
-                self.table,
-                region=self.backend_region,
+            versions = self.aws(
+                "s3api",
+                "list-object-versions",
+                "--bucket",
+                name,
+                "--max-keys",
+                "1",
+                "--expected-bucket-owner",
+                self.account,
+                region=region,
             )
+            if versions.get("Versions") or versions.get("DeleteMarkers"):
+                return True
+            current = self.aws(
+                "s3api",
+                "list-objects-v2",
+                "--bucket",
+                name,
+                "--max-keys",
+                "1",
+                "--expected-bucket-owner",
+                self.account,
+                region=region,
+            )
+            return bool(current.get("Contents"))
         except CommandError as error:
-            if error.code == "ResourceNotFoundException":
+            if error.code == "NoSuchBucket":
                 return False
             raise
-        return True
 
-    def verify_backend_absent(self):
-        if self.bucket_exists(self.bucket, self.backend_region) or self.table_exists():
-            raise TeardownError(
-                "Backend resources still exist; teardown is not complete"
+    def repository_contains_images(self, name, region):
+        try:
+            result = self.aws(
+                "ecr",
+                "list-images",
+                "--registry-id",
+                self.account,
+                "--repository-name",
+                name,
+                "--max-results",
+                "1",
+                region=region,
             )
+            return bool(result.get("imageIds"))
+        except CommandError as error:
+            if error.code == "RepositoryNotFoundException":
+                return False
+            raise
 
     def confirm(self):
         print(
@@ -1076,37 +913,24 @@ class Teardown:
         )
         if self.backend_region != self.application_region:
             print("State backend region: {}".format(self.backend_region))
-        for stack, addresses in self.approved.items():
-            for address in sorted(addresses):
-                print("  delete {}: {}".format(stack, address))
-            for item in resources(self.states[stack], stack):
-                if item["type"] in (
-                    "aws_s3_bucket",
-                    "aws_ecr_repository",
-                    "aws_instance",
-                    "aws_dynamodb_table",
-                    "aws_iam_openid_connect_provider",
-                ):
-                    print("    {}: {}".format(item["type"], item["values"]["id"]))
-        for secret in self.secrets:
-            print("  delete secret: {}".format(secret))
-        for reason in self.keep:
-            print("  retain GitHub/bootstrap: {}".format(reason))
-        for reason in self.keep_bootstrap:
-            print("  retain bootstrap: {}".format(reason))
-        for secret in self.retained_secrets:
-            print("  retain unverified legacy secret: {}".format(secret))
-        print(
-            "This permanently deletes selected media, backups, container images, and infrastructure."
-        )
-        if os.environ.get("TERRAFORM_AUTO_APPROVE") == "1":
-            print("Approved by TERRAFORM_AUTO_APPROVE=1")
-            return
+        for address in sorted(self.approved[self.environment]):
+            print("  delete {}: {}".format(self.environment, address))
+        for item in resources(self.states[self.environment], self.environment):
+            if item["type"] in ("aws_s3_bucket", "aws_ecr_repository", "aws_instance"):
+                print("    {}: {}".format(item["address"], item["values"]["id"]))
+        print("Shared GitHub resources, state bucket and lock table will be retained.")
+        if self.disposable:
+            print(
+                "Disposable sandbox: Terraform can permanently delete media, backups, images and cluster secrets."
+            )
+            if os.environ.get("TEARDOWN_AUTO_APPROVE") == "1":
+                print("Approved by TEARDOWN_AUTO_APPROVE=1 for the disposable sandbox")
+                return
         try:
-            answer = input("Type 'yes' to continue: ")
+            answer = input("Type '{}' to continue: ".format(self.environment))
         except EOFError:
             answer = ""
-        if answer != "yes":
+        if answer != self.environment:
             raise TeardownError(
                 "Teardown cancelled; no destructive operations performed"
             )
@@ -1179,131 +1003,6 @@ class Teardown:
                     )
                 time.sleep(2)
 
-    def delete_objects(self, bucket, objects, region):
-        for offset in range(0, len(objects), 1000):
-            payload = json.dumps(
-                {"Objects": objects[offset : offset + 1000], "Quiet": True}
-            )
-            # Long S3 keys can exceed OS argument-size limits even in one batch.
-            with tempfile.TemporaryDirectory(prefix="scaf-s3-delete-") as directory:
-                request = Path(directory) / "delete.json"
-                request.write_text(payload)
-                result = self.aws(
-                    "s3api",
-                    "delete-objects",
-                    "--bucket",
-                    bucket,
-                    "--expected-bucket-owner",
-                    self.account,
-                    "--delete",
-                    "file://" + str(request),
-                    region=region,
-                )
-            if result.get("Errors"):
-                codes = sorted({e.get("Code", "Unknown") for e in result["Errors"]})
-                raise TeardownError(
-                    "S3 deletion failed in {} ({})".format(bucket, ", ".join(codes))
-                )
-
-    def empty_bucket(self, bucket, region):
-        if not self.bucket_exists(bucket, region):
-            return
-        for _ in range(3):
-            found_objects = False
-            for operation, collections, attributes in (
-                (
-                    "list-object-versions",
-                    ("Versions", "DeleteMarkers"),
-                    ("Key", "VersionId"),
-                ),
-                ("list-objects-v2", ("Contents",), ("Key",)),
-            ):
-                pages = iter(
-                    self.pages(
-                        "s3api",
-                        operation,
-                        "--bucket",
-                        bucket,
-                        "--expected-bucket-owner",
-                        self.account,
-                        "--max-keys",
-                        "1000",
-                        region=region,
-                    )
-                )
-                page = next(pages, None)
-                while page is not None:
-                    # Resolve the next cursor while this page still exists.
-                    # Only the current and next pages are retained in memory.
-                    following = next(pages, None)
-                    objects = [
-                        {attribute: entry[attribute] for attribute in attributes}
-                        for collection in collections
-                        for entry in page.get(collection, [])
-                    ]
-                    self.delete_objects(bucket, objects, region)
-                    found_objects = found_objects or bool(objects)
-                    page = following
-            if not found_objects:
-                print("Bucket empty: {}".format(bucket))
-                return
-        raise TeardownError(
-            "Bucket {} keeps refilling; stop external writers and retry".format(bucket)
-        )
-
-    def cleanup(self):
-        for item in resources(self.states[self.environment], self.environment):
-            attrs = item["values"]
-            region = self.resource_region(item)
-            if self.application_bucket(item):
-                self.empty_bucket(attrs.get("bucket") or attrs["id"], region)
-            elif item["type"] == "aws_ecr_repository":
-                name = attrs.get("name") or attrs["id"]
-                try:
-                    self.aws(
-                        "ecr",
-                        "delete-repository",
-                        "--registry-id",
-                        self.account,
-                        "--repository-name",
-                        name,
-                        "--force",
-                        region=region,
-                    )
-                except CommandError as error:
-                    if error.code != "RepositoryNotFoundException":
-                        raise
-                try:
-                    self.aws(
-                        "ecr",
-                        "describe-repositories",
-                        "--registry-id",
-                        self.account,
-                        "--repository-names",
-                        name,
-                        region=region,
-                    )
-                except CommandError as error:
-                    if error.code == "RepositoryNotFoundException":
-                        continue
-                    raise
-                raise TeardownError(
-                    "ECR repository still exists after deletion: {}".format(name)
-                )
-        for secret in self.secrets:
-            try:
-                self.aws(
-                    "secretsmanager",
-                    "delete-secret",
-                    "--secret-id",
-                    secret,
-                    "--force-delete-without-recovery",
-                    region=self.application_region,
-                )
-            except CommandError as error:
-                if error.code != "ResourceNotFoundException":
-                    raise
-
     def destroy(self, stack):
         if stack not in self.approved:
             return
@@ -1344,44 +1043,14 @@ class Teardown:
             return
         self.phase = "confirmation"
         self.confirm()
-        if self.backend_present:
-            self.phase = "node shutdown"
-            self.stop_nodes()
-            self.phase = "storage and secret cleanup"
-            self.cleanup()
-            self.destroy(self.environment)
-            if not self.keep:
-                self.destroy("github")
-            if not self.keep and not self.keep_bootstrap:
-                self.phase = "backend finalization"
-                # Recheck remote state before permanently erasing its versions.
-                for backend in self.backends.values():
-                    if resources(self.read_remote(backend), backend["key"]):
-                        raise TeardownError(
-                            "Dependent state is not empty; backend preserved"
-                        )
-                self.empty_bucket(self.bucket, self.backend_region)
-                self.destroy("bootstrap")
-                self.phase = "backend verification"
-                self.verify_backend_absent()
-        else:
-            self.destroy("bootstrap")
-            self.phase = "backend verification"
-            self.verify_backend_absent()
-        if self.keep:
-            print(
-                "Environment teardown completed; shared GitHub/bootstrap infrastructure retained."
+        self.phase = "node shutdown"
+        self.stop_nodes()
+        self.destroy(self.environment)
+        print(
+            "Environment teardown completed for {}; shared GitHub and bootstrap retained.".format(
+                self.environment
             )
-        elif self.keep_bootstrap:
-            print(
-                "Environment/GitHub teardown completed; bootstrap retained: {}.".format(
-                    "; ".join(self.keep_bootstrap)
-                )
-            )
-        else:
-            print("Infrastructure teardown completed for {}.".format(self.environment))
-        for secret in self.retained_secrets:
-            print("Legacy secret preserved (ownership unverified): {}".format(secret))
+        )
 
 
 def main():

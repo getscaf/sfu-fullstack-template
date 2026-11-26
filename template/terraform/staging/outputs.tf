@@ -74,3 +74,8 @@ output "cloudfront_domain_name" {
   description = "The CloudFront distribution domain name"
   value       = module.cluster.cloudfront_domain_name
 }
+
+output "cluster_secret_arns" {
+  description = "Secret identifiers for cluster bootstrap"
+  value       = module.cluster.cluster_secret_arns
+}

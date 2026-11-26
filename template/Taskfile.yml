@@ -217,7 +217,7 @@ tasks:
         vars: {ENV: '{{.ENV}}'}
 
   clean-s3-bucket-only:
-    desc: Retired; the state backend is cleaned only after dependent stacks
+    desc: Retired; shared Terraform state is protected
     cmds:
       - echo "Use task teardown-sandbox (or teardown-staging); standalone state deletion is disabled."
       - exit 1
@@ -272,9 +272,6 @@ tasks:
     interactive: true
     silent: true
     cmds:
-      - echo -e "{{.RED}}For safety this command isn't enabled, uncomment the task in Taskfile.yml to continue{{.END}}"
+      - echo -e "{{.RED}}Production teardown is disabled.{{.END}}"
       - exit 1
-      # - task: establish-aws-login
-      # - task: teardown-environment
-      #   vars: {ENV: production}
 {% endraw %}

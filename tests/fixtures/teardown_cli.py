@@ -90,35 +90,16 @@ def option(flag, default=None):
 
 
 def state_for(stack):
-    return (
-        scenario["bootstrap"]
-        if stack == "bootstrap"
-        else scenario["remote"].get(
-            scenario["keys"][stack], {"version": 4, "resources": []}
-        )
+    return scenario["remote"].get(
+        scenario["keys"][stack], {"version": 4, "resources": []}
     )
 
 
-def table_values(values, region):
-    if not region:
-        return values
-    parts = values["arn"].split(":")
-    parts[3] = region
-    return dict(values, arn=":".join(parts))
-
-
 def write_state(stack, state):
-    if stack == "bootstrap":
-        scenario["bootstrap"] = state
-        (PATH.parent / "project/terraform/bootstrap/terraform.tfstate").write_text(
-            json.dumps(state)
-        )
-    else:
-        scenario["remote"][scenario["keys"][stack]] = state
+    scenario["remote"][scenario["keys"][stack]] = state
 
 
 if tool == "aws":
-    region = option("--region", "us-east-1")
     while args and args[0].startswith("--"):
         arg = args.pop(0)
         if arg in ("--region", "--profile", "--output"):
@@ -163,7 +144,7 @@ if tool == "aws":
                     )
                 except StopIteration:
                     fail("InvalidPaginationMarker")
-            chunk = entries[start : start + 1000]
+            chunk = entries[start : start + int(option("--max-keys", "1000"))]
             result = {
                 "Versions": [v for v in chunk if not v.get("DeleteMarker")],
                 "DeleteMarkers": [v for v in chunk if v.get("DeleteMarker")],
@@ -185,7 +166,7 @@ if tool == "aws":
                     start = entries.index(marker) + 1
                 except ValueError:
                     fail("InvalidPaginationMarker")
-            chunk = entries[start : start + 1000]
+            chunk = entries[start : start + int(option("--max-keys", "1000"))]
             result = {
                 "Contents": [{"Key": key} for key in chunk],
                 "IsTruncated": start + len(chunk) < len(entries),
@@ -193,48 +174,17 @@ if tool == "aws":
             if result["IsTruncated"]:
                 result["NextContinuationToken"] = chunk[-1]
             emit(result)
-        if operation == "delete-objects":
-            payload = option("--delete")
-            if payload.startswith("file://"):
-                payload = Path(payload.removeprefix("file://")).read_text()
-                call = scenario["calls"][-1]
-                call[call.index("--delete") + 1] = payload
-            objects = json.loads(payload)["Objects"]
-            assert len(objects) <= 1000
-            if scenario.get("object_error"):
-                emit({"Errors": [{"Key": "private", "Code": "AccessDenied"}]})
-            for item in objects:
-                key = item["Key"]
-                bucket["versions"] = [
-                    v
-                    for v in bucket["versions"]
-                    if not (
-                        v["Key"] == key
-                        and (
-                            "VersionId" not in item
-                            or v["VersionId"] == item["VersionId"]
-                        )
-                    )
-                ]
-                bucket["objects"] = [v for v in bucket["objects"] if v != key]
-                if name == scenario["state_bucket"]:
-                    scenario["remote"].pop(key, None)
-            emit({})
-    if service == "ecr":
-        name = option("--repository-name") or option("--repository-names")
+    if service == "ecr" and operation == "list-images":
+        name = option("--repository-name")
         if name not in scenario["repositories"]:
             fail("RepositoryNotFoundException")
-        if operation == "delete-repository":
-            if "--force" not in args:
-                fail("RepositoryNotEmptyException")
-            scenario["repositories"].remove(name)
-            emit({})
-        if operation == "describe-repositories":
-            emit({"repositories": [{"repositoryName": name}]})
-        if operation == "list-images":
-            # Legacy cleanup can miss images; reproduce the original failure
-            # at native destroy rather than supplying the fixed cleanup path.
-            emit([])
+        emit(
+            {
+                "imageIds": (
+                    [{"imageTag": "populated"}] if name in scenario["images"] else []
+                )
+            }
+        )
     if service == "ec2":
         identity = option("--instance-ids")
         if identity not in scenario["nodes"]:
@@ -260,41 +210,16 @@ if tool == "aws":
             scenario["nodes"][identity] = "stopped"
             emit({})
     if service == "secretsmanager":
-        secrets = (
-            scenario["secrets_by_region"].setdefault(region, {})
-            if "secrets_by_region" in scenario
-            else scenario["secrets"]
-        )
-        name = option("--secret-id")
-        name = next(
-            (k for k, v in secrets.items() if k == name or v["ARN"] == name),
-            name,
-        )
-        if (
-            name not in secrets
-            and operation == "delete-secret"
-            and "--force-delete-without-recovery" in args
-        ):
-            emit({})
-        if name not in secrets:
+        secret = scenario["secrets"].get(option("--secret-id"))
+        if secret is None:
             fail("ResourceNotFoundException")
-        if operation == "describe-secret":
-            emit(secrets[name])
-        if operation == "delete-secret":
-            del secrets[name]
+        if operation == "put-secret-value":
+            secret["value"] = option("--secret-string")
             emit({})
-    if service == "iam" and operation == "list-roles":
-        start = int(option("--marker", "0"))
-        chunk = scenario["roles"][start : start + 2]
-        more = start + len(chunk) < len(scenario["roles"])
-        result = {"Roles": chunk, "IsTruncated": more}
-        if more:
-            result["Marker"] = str(start + len(chunk))
-        emit(result)
-    if service == "dynamodb":
-        if not scenario["table_exists"]:
-            fail("ResourceNotFoundException")
-        emit({"Table": {"TableName": option("--table-name")}})
+        if operation == "get-secret-value":
+            save()
+            print(secret["value"])
+            raise SystemExit(0)
 elif tool == "tofu":
     stack_path = (
         Path(args.pop(0).split("=", 1)[1])
@@ -304,31 +229,14 @@ elif tool == "tofu":
     stack = stack_path.name
     action = args[0]
     state = state_for(stack)
+    if action == "output" and args[1:] == ["-json", "cluster_secret_arns"]:
+        emit(state["outputs"]["cluster_secret_arns"]["value"])
     if action == "init":
         (stack_path / ".terraform").mkdir(exist_ok=True)
         emit({})
-    if action == "output":
-        outputs = dict(state.get("outputs", {}))
-        for item in state.get("resources", []):
-            if item["type"] == "aws_ecr_repository":
-                outputs["backend_ecr_repo"] = {
-                    "value": "123456789012.dkr.ecr.us-east-1.amazonaws.com/"
-                    + item["instances"][0]["attributes"]["id"]
-                }
-        emit(outputs)
     if action == "state" and args[1] == "pull":
-        if stack == "bootstrap" and scenario.get("bootstrap_refreshed_region"):
-            state = json.loads(json.dumps(state))
-            for resource in state["resources"]:
-                if resource["type"] == "aws_dynamodb_table":
-                    instance = resource["instances"][0]
-                    instance["attributes"] = table_values(
-                        instance["attributes"], scenario["bootstrap_refreshed_region"]
-                    )
         emit(state)
     if action == "plan":
-        if stack == "github" and scenario.get("github_error"):
-            fail("GitHubLookupFailed")
         remaining = []
         for resource in state.get("resources", []):
             identity = resource["instances"][0]["attributes"]["id"]
@@ -346,8 +254,6 @@ elif tool == "tofu":
         changes = []
         for resource in remaining:
             before = resource["instances"][0]["attributes"]
-            if stack == "bootstrap" and resource["type"] == "aws_dynamodb_table":
-                before = table_values(before, scenario.get("bootstrap_plan_region"))
             address = ".".join(
                 filter(
                     None, [resource.get("module"), resource["type"], resource["name"]]
@@ -400,13 +306,18 @@ elif tool == "tofu":
             scenario["fail_apply"][stack] -= 1
         deleted = []
         for resource in pending:
-            identity = resource["instances"][0]["attributes"]["id"]
+            attrs = resource["instances"][0]["attributes"]
+            identity = attrs["id"]
             if resource["type"] == "aws_s3_bucket":
                 bucket = scenario["buckets"].get(identity)
-                if bucket and (
-                    bucket["versions"]
-                    or bucket["objects"]
-                    or (identity == scenario["state_bucket"] and scenario["remote"])
+                if (
+                    not attrs.get("force_destroy")
+                    and bucket
+                    and (
+                        bucket["versions"]
+                        or bucket["objects"]
+                        or (identity == scenario["state_bucket"] and scenario["remote"])
+                    )
                 ):
                     write_state(
                         stack,
@@ -422,7 +333,17 @@ elif tool == "tofu":
                 resource["type"] == "aws_ecr_repository"
                 and identity in scenario["repositories"]
             ):
-                fail("RepositoryNotEmptyException")
+                if identity in scenario["images"] and not attrs.get("force_delete"):
+                    fail("RepositoryNotEmptyException")
+                scenario["repositories"].remove(identity)
+                if identity in scenario["images"]:
+                    scenario["images"].remove(identity)
+            if resource["type"] == "aws_secretsmanager_secret":
+                days = attrs["recovery_window_in_days"]
+                if days:
+                    scenario["secrets"][identity]["scheduled_recovery_days"] = days
+                else:
+                    del scenario["secrets"][identity]
             if resource["type"] == "aws_instance":
                 scenario["nodes"].pop(identity, None)
             if resource["type"] == "aws_dynamodb_table":
@@ -439,8 +360,4 @@ elif tool == "tofu":
         if interrupted:
             fail("InjectedInterruption")
         emit({})
-elif tool == "gh":
-    if scenario.get("github_error"):
-        fail("GitHubLookupFailed")
-    emit({"owner": "example", "name": "project", "owner_id": "1", "repository_id": "2"})
 fail("UnexpectedFakeCommand")

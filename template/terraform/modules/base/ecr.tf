@@ -5,6 +5,7 @@ module "ecr_frontend" {
 
   repository_name                 = var.frontend_ecr_repo
   repository_image_tag_mutability = "MUTABLE"
+  repository_force_delete         = var.disposable
 
   repository_lifecycle_policy = jsonencode({
     rules = [
@@ -34,6 +35,7 @@ module "ecr_backend" {
 
   repository_name                 = var.backend_ecr_repo
   repository_image_tag_mutability = "MUTABLE"
+  repository_force_delete         = var.disposable
 
   repository_lifecycle_policy = jsonencode({
     rules = [

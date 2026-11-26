@@ -41,7 +41,6 @@ tasks:
       vars: [ENV]
     env:
       TEARDOWN_ENVIRONMENT: '{{.ENV}}'
-      TERRAFORM_AUTO_APPROVE: '{{.TERRAFORM_AUTO_APPROVE | default "0"}}'
     cmds:
       - |
         if ! command -v python3 >/dev/null 2>&1; then
@@ -110,13 +109,13 @@ tasks:
   destroy-github-dir:
     internal: true
     cmds:
-      - echo "Shared stacks are removed only by the environment teardown helper."
+      - echo "Environment teardown retains the shared GitHub stack."
       - exit 1
 
   destroy-bootstrap-dir:
     internal: true
     cmds:
-      - echo "Bootstrap is removed only after dependent states are verified empty."
+      - echo "Environment teardown retains the shared state bucket and lock table."
       - exit 1
 
   clean-s3-bucket:

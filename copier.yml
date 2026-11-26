@@ -132,6 +132,11 @@ copier__aws_account_id:
       "AWS account ID cannot be empty."
     {% endif %}
 
+copier__disposable_sandbox:
+  type: bool
+  default: false
+  help: "Is this sandbox a disposable demo or E2E environment? Teardown permanently deletes its media, backups, images and cluster credentials."
+
 copier__create_nextjs_frontend:
   type: bool
   default: true

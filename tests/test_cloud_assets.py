@@ -47,6 +47,18 @@ MOCK_TEST = """mock_provider "aws" {
 run "public_asset_access" {
   command = plan
   assert {
+    condition = aws_s3_bucket.static_storage.force_destroy == var.expected_disposable && aws_s3_bucket.backups.force_destroy == var.expected_disposable
+    error_message = "Both generated buckets must follow the selected teardown policy."
+  }
+  assert {
+    condition = toset(keys(aws_secretsmanager_secret.cluster)) == toset(var.expected_secret_keys)
+    error_message = "The selected cluster OS must provision its config secret containers."
+  }
+  assert {
+    condition = alltrue([for secret in aws_secretsmanager_secret.cluster : secret.recovery_window_in_days == (var.expected_disposable ? 0 : 30)])
+    error_message = "Secrets must keep a recovery window on protected environments."
+  }
+  assert {
     condition = jsonencode(jsondecode(aws_s3_bucket_policy.static_storage.policy).Statement.Resource) == jsonencode(var.expected_s3_resources)
     error_message = "S3 must preserve the intended public prefixes and legacy non-Wagtail access."
   }
@@ -86,6 +98,7 @@ class CloudAssetTests(unittest.TestCase):
             "app_name": "assets",
             "environment": "sandbox",
             "tags": {},
+            "disposable": False,
             "domain_name": "assets.example.test",
             "nextjs_domain_name": "nextjs.assets.example.test",
             "cluster_name": "assets-cluster",
@@ -102,6 +115,8 @@ class CloudAssetTests(unittest.TestCase):
                 "expected_paths": {},
                 "expected_s3_resources": {},
                 "expected_default_origin": {},
+                "expected_secret_keys": {},
+                "expected_disposable": {"default": False},
             },
             "resource": {
                 "aws_acm_certificate": {
@@ -140,19 +155,30 @@ class CloudAssetTests(unittest.TestCase):
             raise AssertionError(result.stdout + result.stderr)
         return result
 
-    def render(self, *, nextjs, wagtail):
+    def render(self, *, nextjs, wagtail, cluster_os="k3s"):
         environment = Environment(undefined=StrictUndefined)
-        for name in ("locals.tf", "s3.tf", "cloudfront.tf"):
+        for name in ("locals.tf", "s3.tf", "cloudfront.tf", "cluster-secrets.tf"):
             rendered = environment.from_string(
                 (self.template / name).read_text()
             ).render(
                 copier__create_nextjs_frontend=nextjs,
                 copier__use_wagtail=wagtail,
+                copier__operating_system=cluster_os,
+                copier__project_slug="assets",
             )
             (self.project / name).write_text(rendered)
 
-    def assert_asset_plan(self, *, nextjs, wagtail, prefixes):
+    def assert_asset_plan(
+        self, *, nextjs, wagtail, prefixes, disposable=False, cluster_os="k3s"
+    ):
         expected = {
+            "disposable": disposable,
+            "expected_disposable": disposable,
+            "expected_secret_keys": (
+                ["kubeconfig", "talosconfig_yaml", "talos_controlplane_yaml"]
+                if cluster_os == "talos"
+                else ["kubeconfig"]
+            ),
             "expected_paths": (
                 [f"/{prefix}*" for prefix in prefixes] + ["/api/*"] if nextjs else []
             ),
@@ -175,6 +201,16 @@ class CloudAssetTests(unittest.TestCase):
                     wagtail=wagtail,
                     prefixes=WAGTAIL_PREFIXES if wagtail else ["static/", "media/"],
                 )
+
+    def test_disposable_talos_policy(self):
+        self.render(nextjs=False, wagtail=False, cluster_os="talos")
+        self.assert_asset_plan(
+            nextjs=False,
+            wagtail=False,
+            prefixes=["static/", "media/"],
+            disposable=True,
+            cluster_os="talos",
+        )
 
     def test_adding_one_prefix_updates_routing_and_permissions(self):
         self.render(nextjs=True, wagtail=True)
