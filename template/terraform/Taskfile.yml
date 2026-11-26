@@ -51,7 +51,7 @@ tasks:
           echo "Teardown requires Python 3.9 or later; select a compatible python3." >&2
           exit 1
         fi
-        python3 scripts/teardown.py --environment "$TEARDOWN_ENVIRONMENT"
+        python3 -m scripts.teardown --environment "$TEARDOWN_ENVIRONMENT"
 
   # Deployment tasks
   deploy-bootstrap-dir:
