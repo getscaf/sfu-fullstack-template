@@ -384,18 +384,20 @@ class TeardownTests(unittest.TestCase):
                     "cluster_secret_arns"
                 ] = {"value": arns}
                 self.persist()
-                for filename, _, store_task in configs:
+                root_taskfile = self.project / "Taskfile.yml"
+                with root_taskfile.open("a") as tasks:
+                    tasks.write("\n  publish-test-config:\n    cmds:\n")
+                    for _, _, store_task in configs:
+                        tasks.write(
+                            f"      - task: bootstrap-cluster:{cluster_os}:{store_task}\n"
+                            "        vars: {ENV: sandbox}\n"
+                        )
+                for filename, _, _ in configs:
                     path = config_dir / filename
                     path.write_text("fixture for " + filename)
-                    self.assert_success(
-                        self.invoke(
-                            task_args=("ENV=sandbox",),
-                            command="bootstrap-cluster:{}:{}".format(
-                                cluster_os, store_task
-                            ),
-                        )
-                    )
-                    path.unlink()
+                self.assert_success(self.invoke(command="publish-test-config"))
+                for filename, _, _ in configs:
+                    (config_dir / filename).unlink()
                 fetch_task = "fetch-config" if cluster_os == "k3s" else "fetch_config"
                 self.assert_success(
                     self.invoke(

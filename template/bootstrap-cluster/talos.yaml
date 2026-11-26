@@ -135,19 +135,28 @@ tasks:
     desc: Store the Talos configuration in its Terraform-managed AWS secret.
     cmds:
       - task: store_config_secret
-        vars: {SECRET_KEY: talosconfig_yaml, CONFIG_FILE: "$TALOSCONFIG"}
+        vars:
+          ENV: {{ "'{{.ENV}}'" }}
+          SECRET_KEY: talosconfig_yaml
+          CONFIG_FILE: "$TALOSCONFIG"
 
   store_controlplane_config:
     desc: Store the control plane configuration in its Terraform-managed AWS secret.
     cmds:
       - task: store_config_secret
-        vars: {SECRET_KEY: talos_controlplane_yaml, CONFIG_FILE: "./{{ '{{.ENV}}' }}/controlplane.yaml"}
+        vars:
+          ENV: {{ "'{{.ENV}}'" }}
+          SECRET_KEY: talos_controlplane_yaml
+          CONFIG_FILE: "./{{ '{{.ENV}}' }}/controlplane.yaml"
 
   store_kubeconfig:
     desc: Store the kubeconfig in its Terraform-managed AWS secret.
     cmds:
       - task: store_config_secret
-        vars: {SECRET_KEY: kubeconfig, CONFIG_FILE: "$KUBECONFIG"}
+        vars:
+          ENV: {{ "'{{.ENV}}'" }}
+          SECRET_KEY: kubeconfig
+          CONFIG_FILE: "$KUBECONFIG"
 
   store_config_secret:
     internal: true
