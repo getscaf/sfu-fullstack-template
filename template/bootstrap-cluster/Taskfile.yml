@@ -1,6 +1,17 @@
 version: '3'
 vars:
   ENV: {{ "'{{.ENV}}'" }}
+  # Kubernetes version for new clusters, on Talos and k3s (as v<version>+k3s1).
+  # 1.36 is the newest minor that every Argo CD app's chart supports. Check
+  # the chart support ranges before you raise it.
+  KUBERNETES_VERSION: 1.36.6
+{%- if copier__operating_system == "talos" %}
+  # Image Factory AWS installer for a schematic that adds the ECR credential
+  # provider extension. The tag is the Talos version the node booted with.
+  # Use the aws-installer: the plain installer boots nodes as bare metal, so
+  # they lose the AWS metadata, including their public IP.
+  TALOS_FACTORY_INSTALLER: factory.talos.dev/aws-installer/10e276a06c1f86b182757a962258ac00655d3425e5957f617bdc82f06894e39b
+{%- endif %}
 
 includes:
   argocd:

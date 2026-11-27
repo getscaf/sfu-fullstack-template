@@ -241,6 +241,49 @@ class TemplateGenerationTests(unittest.TestCase):
         self.assertTrue((project / "k8s/base/celery.yaml").exists())
         self.assertTrue((project / "backend/cms_demo/cms/models.py").exists())
 
+    def test_task_references_exist_for_each_operating_system(self):
+        for operating_system in ("k3s", "talos"):
+            with self.subTest(operating_system=operating_system):
+                project = generate_project(
+                    Path(self.directory.name) / f"tasks-{operating_system}",
+                    nextjs=False,
+                    wagtail=False,
+                    copier__operating_system=operating_system,
+                )
+                tasks, references = load_taskfiles(project / "Taskfile.yml")
+                self.assertIn("deploy-sandbox", tasks)
+                self.assertIn("teardown-sandbox", tasks)
+                missing = [
+                    f"{caller} -> {target}"
+                    for caller, target in references
+                    if target not in tasks
+                ]
+                self.assertEqual(missing, [])
+
+
+def load_taskfiles(path, namespace=""):
+    """Return every task name and every task: reference, both fully qualified."""
+    taskfile = yaml.safe_load(path.read_text())
+    tasks = set()
+    references = []
+    for name, include in (taskfile.get("includes") or {}).items():
+        included = include["taskfile"] if isinstance(include, dict) else include
+        child_tasks, child_references = load_taskfiles(
+            path.parent / included, f"{namespace}{name}:"
+        )
+        tasks |= child_tasks
+        references += child_references
+    for name, task in (taskfile.get("tasks") or {}).items():
+        tasks.add(namespace + name)
+        if not isinstance(task, dict):
+            continue
+        for step in (task.get("cmds") or []) + (task.get("deps") or []):
+            target = step.get("task") if isinstance(step, dict) else None
+            if target:
+                qualified = target[1:] if target.startswith(":") else namespace + target
+                references.append((namespace + name, qualified))
+    return tasks, references
+
 
 if __name__ == "__main__":
     unittest.main()

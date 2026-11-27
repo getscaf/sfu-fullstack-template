@@ -60,13 +60,6 @@ variable "prometheus_domain_name" {
   default = "prometheus.{{ copier__domain_name }}"
 }
 
-variable "kubernetes_version" {
-
-  description = "Kubernetes version to use for the cluster, if not set the k8s version shipped with the talos sdk or k3s version will be used"
-  type        = string
-  default     = null
-}
-
 variable "control_plane" {
   description = "Info for control plane that will be created"
   type = object({
@@ -139,4 +132,10 @@ variable "existing_hosted_zone" {
   description = "Name of existing hosted zone to use instead of creating a new one"
   type        = string
   default     = "{{ copier__existing_hosted_zone }}"
+}
+
+variable "disposable" {
+  description = "Permit destructive teardown of data in a sandbox provisioned for demo or E2E use"
+  type        = bool
+  default     = false
 }

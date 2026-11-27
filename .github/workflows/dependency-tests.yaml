@@ -29,6 +29,15 @@ jobs:
           tofu_wrapper: false
       - name: Install validation tools
         run: pip install -r .github/requirements.txt
+      - name: Install Task and helper compatibility interpreter
+        run: |
+          mkdir -p "$RUNNER_TEMP/task-bin"
+          curl -fsSL https://github.com/go-task/task/releases/download/v3.44.0/task_linux_amd64.tar.gz -o "$RUNNER_TEMP/task.tar.gz"
+          echo "d6c9c0a14793659766ee0c06f9843452942ae6982a3151c6bbd78959c1682b82  $RUNNER_TEMP/task.tar.gz" | sha256sum --check -
+          tar -xzf "$RUNNER_TEMP/task.tar.gz" -C "$RUNNER_TEMP/task-bin" task
+          echo "$RUNNER_TEMP/task-bin" >> "$GITHUB_PATH"
+          uv python install 3.9
+          echo "TEARDOWN_PYTHON39=$(uv python find 3.9)" >> "$GITHUB_ENV"
       - name: Run updater regression tests
         run: python -m unittest discover -s tests -v
       - name: Validate all Python feature configurations

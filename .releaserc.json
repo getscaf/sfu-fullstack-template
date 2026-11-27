@@ -6,7 +6,22 @@
     [
       "@semantic-release/commit-analyzer",
       {
-        "preset": "conventionalcommits"
+        "preset": "conventionalcommits",
+        "releaseRules": [
+          {
+            "breaking": true,
+            "release": "major"
+          },
+          {
+            "type": "chore",
+            "scope": "deps",
+            "release": "patch"
+          },
+          {
+            "type": "refactor",
+            "release": "patch"
+          }
+        ]
       }
     ],
     [
@@ -22,6 +37,11 @@
             {
               "type": "fix",
               "section": "Bug Fixes"
+            },
+            {
+              "type": "chore",
+              "scope": "deps",
+              "section": "Dependencies"
             },
             {
               "type": "chore",

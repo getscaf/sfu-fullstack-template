@@ -1,4 +1,4 @@
-image: python:3.13.16-slim-bookworm
+image: python:3.13.18-slim-bookworm
 
 definitions:
   services:
@@ -46,7 +46,7 @@ definitions:
 {% if copier__create_nextjs_frontend %}
     - step: &check-lint-and-test-frontend
         name: Frontend Lint & Typecheck & Test
-        image: node:24.21.0-bookworm
+        image: node:26.13.1-bookworm
         caches:
           - node
         script:
