@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.18.6](https://github.com/getscaf/sfu-fullstack-template/compare/v1.18.5...v1.18.6) (2026-11-27)
+
+### Bug Fixes
+
+* protect environment data during resumable teardown ([#231](https://github.com/getscaf/sfu-fullstack-template/issues/231)) ([a124761](https://github.com/getscaf/sfu-fullstack-template/commit/a124761762d9fdc249b9ae5817056808d3802ba2))
+
 ## [1.18.5](https://github.com/getscaf/sfu-fullstack-template/compare/v1.18.4...v1.18.5) (2026-11-25)
 
 ### Dependencies
