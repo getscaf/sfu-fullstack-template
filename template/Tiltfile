@@ -7,7 +7,11 @@ print(
 """.strip()
 )
 
-load("ext://syncback", "syncback")
+e2e_context = os.getenv("SCAF_E2E_CONTEXT", "")
+if e2e_context and (
+    not e2e_context.startswith("kind-scaf-e2e-") or k8s_context() != e2e_context
+):
+    fail("E2E requires the disposable kind context created by e2e-run.sh")
 
 docker_build(
     "backend",
@@ -33,31 +37,51 @@ k8s_yaml(
     kustomize("./k8s/local/")
 )
 
-syncback(
-    "backend-sync",
-    "deploy/backend",
-    "/app/src/{{ copier__project_slug }}/",
-    target_dir="./backend/{{ copier__project_slug }}",
-    rsync_path='/app/bin/rsync.tilt',
-)
-
-{% if copier__create_nextjs_frontend %}
-syncback(
-    "frontend-sync",
-    "deploy/frontend",
-    "/app/",
-    target_dir="./frontend",
-    rsync_path='/app/rsync.tilt',
-    ignore=[".next", "next-env.d.ts", "node_modules", "rsync.tilt"],
-)
-{% endif %}
-
-{% if copier__create_nextjs_frontend %}
-k8s_resource(workload='frontend', port_forwards=3000)
-{% endif %}
-k8s_resource(workload='backend', port_forwards=[8000, 5678])
-k8s_resource(workload='mailhog', port_forwards=8025)
-k8s_resource(workload='postgres', port_forwards=5432)
-{% if copier__use_celery %}
-k8s_resource(workload='celery', port_forwards=5555)
-{% endif %}
+if e2e_context:
+    docker_prune_settings(disable=True)
+    backend_port = int(os.getenv("SCAF_E2E_BACKEND_PORT"))
+    k8s_resource(workload="backend", port_forwards=port_forward(backend_port, 8000))
+    required_services = ["backend", "postgres", "mailhog", "redis"]
+    {% if copier__create_nextjs_frontend %}
+    frontend_port = int(os.getenv("SCAF_E2E_FRONTEND_PORT"))
+    k8s_resource(workload="frontend", port_forwards=port_forward(frontend_port, 3000))
+    required_services.append("frontend")
+    {% endif %}
+    {% if copier__use_celery %}
+    required_services.append("celery")
+    {% endif %}
+    local_resource(
+        "e2e",
+        cmd=[os.getenv("SCAF_E2E_PYTHON"), "e2e/run.py", "test"],
+        resource_deps=required_services,
+        env={
+            "SCAF_E2E_NEXTJS": "{{ '1' if copier__create_nextjs_frontend else '0' }}",
+            "SCAF_E2E_WAGTAIL": "{{ '1' if copier__use_wagtail else '0' }}",
+        },
+    )
+else:
+    syncback = load_dynamic("ext://syncback")["syncback"]
+    syncback(
+        "backend-sync",
+        "deploy/backend",
+        "/app/src/{{ copier__project_slug }}/",
+        target_dir="./backend/{{ copier__project_slug }}",
+        rsync_path='/app/bin/rsync.tilt',
+    )
+    {% if copier__create_nextjs_frontend %}
+    syncback(
+        "frontend-sync",
+        "deploy/frontend",
+        "/app/",
+        target_dir="./frontend",
+        rsync_path='/app/rsync.tilt',
+        ignore=[".next", "next-env.d.ts", "node_modules", "rsync.tilt"],
+    )
+    k8s_resource(workload='frontend', port_forwards=3000)
+    {% endif %}
+    k8s_resource(workload='backend', port_forwards=[8000, 5678])
+    k8s_resource(workload='mailhog', port_forwards=8025)
+    k8s_resource(workload='postgres', port_forwards=5432)
+    {% if copier__use_celery %}
+    k8s_resource(workload='celery', port_forwards=5555)
+    {% endif %}

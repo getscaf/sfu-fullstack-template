@@ -64,6 +64,9 @@ To switch between different Scaf project contexts:
       $ make setup   # inside the codebase of the project you want to work on
       $ tilt up
 
+For a clean verification run in a disposable kind cluster, see the
+[local Tilt E2E quickstart](e2e/QUICKSTART.md).
+
 ## Next steps
 
 Creating a superuser account in the backend is useful so you have access to
