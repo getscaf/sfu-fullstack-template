@@ -66,3 +66,13 @@ output "backend_ecr_repo" {
   description = "The Backend ECR repository"
   value       = module.cluster.backend_ecr_repo
 }
+
+output "cluster_secret_arns" {
+  description = "Secret identifiers for cluster bootstrap"
+  value       = module.cluster.cluster_secret_arns
+}
+
+output "teardown_disposable" {
+  description = "Disposable teardown policy saved when the sandbox was provisioned"
+  value       = local.teardown_disposable
+}

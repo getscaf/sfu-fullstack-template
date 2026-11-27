@@ -1,6 +1,7 @@
 resource "aws_s3_bucket" "backups" {
-  bucket = "${var.app_name}-${var.environment}-backups"
-  tags   = local.common_tags
+  bucket        = "${var.app_name}-${var.environment}-backups"
+  force_destroy = var.disposable
+  tags          = local.common_tags
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "backups" {
@@ -13,8 +14,9 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "backups" {
 }
 
 resource "aws_s3_bucket" "static_storage" {
-  bucket = "${var.app_name}-${var.environment}-static-storage"
-  tags   = local.common_tags
+  bucket        = "${var.app_name}-${var.environment}-static-storage"
+  force_destroy = var.disposable
+  tags          = local.common_tags
 }
 
 resource "aws_s3_bucket_public_access_block" "static_storage" {

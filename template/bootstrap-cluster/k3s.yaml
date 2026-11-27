@@ -168,40 +168,23 @@ tasks:
       - chmod 600 {{ '{{.ENV}}' }}/kubeconfig
 
   store-kubeconfig:
-    desc: |
-      Store the Kubernetes kubeconfig file in AWS Secrets Manager.
+    desc: Store the kubeconfig in its Terraform-managed AWS secret.
     requires:
       vars: [ENV]
     cmds:
       - |
-       if aws secretsmanager describe-secret --secret-id "{{copier__project_slug}}_{{ '{{.ENV}}' }}_kubeconfig" >/dev/null 2>&1; then
-          aws secretsmanager put-secret-value \
-            --secret-id "{{copier__project_slug}}_{{ '{{.ENV}}' }}_kubeconfig" \
-            --secret-string "$(base64 -w0 {{ '{{.ENV}}' }}/kubeconfig)" > /dev/null
-        else
-          aws secretsmanager create-secret \
-            --name "{{copier__project_slug}}_{{ '{{.ENV}}' }}_kubeconfig" \
-            --secret-string "$(base64 -w0 {{ '{{.ENV}}' }}/kubeconfig)" > /dev/null
-        fi
-  delete-all-secrets:
-    desc: |
-      Delete all related secrets from AWS Secrets Manager.
-    requires:
-      vars: [ENV]
-    cmds:
-      - |
-        aws secretsmanager delete-secret \
-          --secret-id "{{copier__project_slug}}_{{ '{{.ENV}}' }}_kubeconfig" \
-          --force-delete-without-recovery > /dev/null 2>&1
+        set -eu -o pipefail
+        secret_arn=$(tofu -chdir=../terraform/{{ '{{.ENV}}' }} output -json cluster_secret_arns | jq -er '.kubeconfig')
+        value=$(base64 < "{{ '{{.ENV}}' }}/kubeconfig" | tr -d '\n')
+        aws secretsmanager put-secret-value --region "{{ copier__aws_region }}" \
+          --secret-id "$secret_arn" --secret-string "$value" > /dev/null
 
   reset-config:
-    desc: |
-      Remove all config files and delete secrets in AWS Secrets Manager
+    desc: Remove the local kubeconfig.
     requires:
       vars: [ENV]
     cmds:
-      - task: delete-all-secrets
-      - cd {{ '{{.ENV}}' }} && rm -f kubeconfig
+      - rm -f "{{ '{{.ENV}}' }}/kubeconfig"
 
   kubeconfig:
     desc: |
@@ -242,8 +225,12 @@ tasks:
         if [ -f {{ '{{.ENV}}' }}/kubeconfig ]; then
           cp {{ '{{.ENV}}' }}/kubeconfig {{ '{{.ENV}}' }}/kubeconfig.bak.$(date +%Y%m%d_%H%M%S)
         fi
-        aws secretsmanager get-secret-value \
-          --secret-id "{{copier__project_slug}}_{{ '{{.ENV}}' }}_kubeconfig" | \
-          yq ".SecretString" | tr -d '"' | \
-          base64 -d > ./{{ '{{.ENV}}' }}/kubeconfig
-      - chmod 600 {{ '{{.ENV}}' }}/kubeconfig
+        set -eu -o pipefail
+        secret_arn=$(tofu -chdir=../terraform/{{ '{{.ENV}}' }} output -json cluster_secret_arns | jq -er '.kubeconfig')
+        config_path="./{{ '{{.ENV}}' }}/kubeconfig"
+        temporary_file=$(mktemp "$config_path.XXXXXX")
+        trap 'rm -f "$temporary_file"' EXIT
+        aws secretsmanager get-secret-value --region "{{ copier__aws_region }}" \
+          --secret-id "$secret_arn" --query SecretString --output text | \
+          base64 -d > "$temporary_file"
+        mv "$temporary_file" "$config_path"

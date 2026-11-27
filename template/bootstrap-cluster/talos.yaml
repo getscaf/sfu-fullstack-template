@@ -132,36 +132,44 @@ tasks:
             --patch @patches/patch-ecr-credential-helper.yaml; \
         done
   store_talosconfig:
-    desc: |
-      Store the Talos configuration file in AWS Secrets Manager.
-    requires:
-      vars: [ENV]
+    desc: Store the Talos configuration in its Terraform-managed AWS secret.
     cmds:
-      - |
-        aws secretsmanager create-secret \
-          --name "{{ copier__project_slug }}_{{ '{{.ENV}}' }}_talosconfig_yaml" \
-          --secret-string "$(base64 -w0 $TALOSCONFIG)"
+      - task: store_config_secret
+        vars:
+          ENV: {{ "'{{.ENV}}'" }}
+          SECRET_KEY: talosconfig_yaml
+          CONFIG_FILE: "$TALOSCONFIG"
+
   store_controlplane_config:
-    desc: |
-      Store the Talos control plane configuration file in AWS Secrets
-      Manager.
-    requires:
-      vars: [ENV]
+    desc: Store the control plane configuration in its Terraform-managed AWS secret.
     cmds:
-      - |
-        aws secretsmanager create-secret \
-          --name "{{ copier__project_slug }}_{{ '{{.ENV}}' }}_talos_controlplane_yaml" \
-          --secret-string "$(base64 -w0 ./{{ '{{.ENV}}' }}/controlplane.yaml)"
+      - task: store_config_secret
+        vars:
+          ENV: {{ "'{{.ENV}}'" }}
+          SECRET_KEY: talos_controlplane_yaml
+          CONFIG_FILE: "./{{ '{{.ENV}}' }}/controlplane.yaml"
+
   store_kubeconfig:
-    desc: |
-      Store the Kubernetes kubeconfig file in AWS Secrets Manager.
+    desc: Store the kubeconfig in its Terraform-managed AWS secret.
+    cmds:
+      - task: store_config_secret
+        vars:
+          ENV: {{ "'{{.ENV}}'" }}
+          SECRET_KEY: kubeconfig
+          CONFIG_FILE: "$KUBECONFIG"
+
+  store_config_secret:
+    internal: true
     requires:
-      vars: [ENV]
+      vars: [ENV, SECRET_KEY, CONFIG_FILE]
     cmds:
       - |
-        aws secretsmanager create-secret \
-          --name "{{ copier__project_slug }}_{{ '{{.ENV}}' }}_kubeconfig" \
-          --secret-string "$(base64 -w0 $KUBECONFIG)"
+        set -eu -o pipefail
+        secret_arn=$(tofu -chdir=../terraform/{{ '{{.ENV}}' }} output -json cluster_secret_arns |
+          jq -er --arg name "{{ '{{.SECRET_KEY}}' }}" '.[$name]')
+        value=$(base64 < "{{ '{{.CONFIG_FILE}}' }}" | tr -d '\n')
+        aws secretsmanager put-secret-value --region "{{ copier__aws_region }}" \
+          --secret-id "$secret_arn" --secret-string "$value" > /dev/null
   health:
     desc: |
       Check the health of the Talos cluster. The checks run from this
@@ -180,34 +188,11 @@ tasks:
         for node in $(yq -r '.contexts[].nodes[]' $TALOSCONFIG); do
           talosctl service --nodes $node;
         done
-  delete_all_secrets:
-    desc: |
-      Delete all related secrets from AWS Secrets Manager. A secret that
-      doesn't exist is skipped. Any other error stops the teardown.
-    requires:
-      vars: [ENV]
-    cmds:
-      - |
-        for name in kubeconfig talosconfig_yaml talos_controlplane_yaml; do
-          id="{{ copier__project_slug }}_{{ '{{.ENV}}' }}_$name"
-          if err=$(aws secretsmanager delete-secret --secret-id "$id" \
-              --force-delete-without-recovery 2>&1 >/dev/null); then
-            echo "Deleted $id"
-          elif printf '%s' "$err" | grep -q ResourceNotFoundException; then
-            echo "Skipped $id (not found)"
-          else
-            printf '%s\n' "$err" >&2
-            exit 1
-          fi
-        done
   reset_config:
-    desc: |
-      Remove all config files and delete secrets in AWS Secrets Manager
+    desc: Remove the local cluster configuration files.
     requires:
       vars: [ENV]
     cmds:
-      - task: delete_all_secrets
-        vars: {ENV: {{ "'{{.ENV}}'" }}}
       - cd {{ '{{.ENV}}' }} && rm -f controlplane.yaml kubeconfig talosconfig
   kubeconfig:
     desc: |
@@ -223,24 +208,25 @@ tasks:
         vars: {ENV: {{ "'{{.ENV}}'" }}}
       - echo "export KUBECONFIG=$(pwd)/{{ '{{.ENV}}' }}/kubeconfig"
   fetch_config:
-    desc: |
-      Fetch kubeconfig, talosconfig and controlplane.yaml from AWS Secrets
-      Manager.
+    desc: Fetch cluster configuration from Terraform-managed AWS secrets.
     requires:
       vars: [ENV]
     cmds:
       - |
-        aws secretsmanager get-secret-value \
-          --secret-id "{{ copier__project_slug }}_{{ '{{.ENV}}' }}_kubeconfig" | \
-          yq ".SecretString" | tr -d '"' | \
-          base64 -d > ./{{ '{{.ENV}}' }}/kubeconfig
-      - |
-        aws secretsmanager get-secret-value \
-          --secret-id "{{ copier__project_slug }}_{{ '{{.ENV}}' }}_talosconfig_yaml" | \
-          yq ".SecretString" | tr -d '"' | \
-          base64 -d > ./{{ '{{.ENV}}' }}/talosconfig
-      - |
-        aws secretsmanager get-secret-value \
-          --secret-id "{{ copier__project_slug }}_{{ '{{.ENV}}' }}_talos_controlplane_yaml" | \
-          yq ".SecretString" | tr -d '"' | \
-          base64 -d > ./{{ '{{.ENV}}' }}/controlplane.yaml
+        set -eu -o pipefail
+        arns=$(tofu -chdir=../terraform/{{ '{{.ENV}}' }} output -json cluster_secret_arns)
+        for config in kubeconfig talosconfig controlplane.yaml; do
+          case "$config" in
+            kubeconfig) key=kubeconfig ;;
+            talosconfig) key=talosconfig_yaml ;;
+            controlplane.yaml) key=talos_controlplane_yaml ;;
+          esac
+          secret_arn=$(printf '%s' "$arns" | jq -er --arg name "$key" '.[$name]')
+          config_path="./{{ '{{.ENV}}' }}/$config"
+          temporary_file=$(mktemp "$config_path.XXXXXX")
+          trap 'rm -f "$temporary_file"' EXIT
+          aws secretsmanager get-secret-value --region "{{ copier__aws_region }}" \
+            --secret-id "$secret_arn" --query SecretString --output text | \
+            base64 -d > "$temporary_file"
+          mv "$temporary_file" "$config_path"
+        done

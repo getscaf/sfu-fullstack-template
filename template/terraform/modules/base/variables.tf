@@ -133,3 +133,9 @@ variable "existing_hosted_zone" {
   type        = string
   default     = "{{ copier__existing_hosted_zone }}"
 }
+
+variable "disposable" {
+  description = "Permit destructive teardown of data in a sandbox provisioned for demo or E2E use"
+  type        = bool
+  default     = false
+}
