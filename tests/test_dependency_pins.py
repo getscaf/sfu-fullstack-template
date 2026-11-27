@@ -32,7 +32,7 @@ class RuntimePinsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = self.runtime_fixture(directory)
             with patch.object(
-                pins, "fetch", return_value="Tags: 3.13.99-slim-bookworm"
+                pins, "fetch", return_value="Tags: 3.13.99-slim"
             ):
                 pins.update_python_runtime(root)
                 first = {
@@ -52,37 +52,20 @@ class RuntimePinsTests(unittest.TestCase):
             self.assertEqual(
                 (root / "template/backend/Dockerfile")
                 .read_text()
-                .count("FROM python:3.13.99-slim-bookworm"),
+                .count("FROM python:3.13.99-slim"),
                 2,
             )
             self.assertEqual(
                 (root / "template/.python-version").read_text(), "3.13.99\n"
             )
             self.assertIn(
-                "image: python:3.13.99-slim-bookworm",
+                "image: python:3.13.99-slim",
                 (root / "template/bitbucket-pipelines.yml").read_text(),
             )
             node = (root / "template/.node-version").read_text().strip()
             self.assertIn(
                 f"node:{node}-bookworm",
                 (root / "template/bitbucket-pipelines.yml").read_text(),
-            )
-
-    def test_python_preserves_an_existing_debian_distribution(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = self.runtime_fixture(directory)
-            for name in ("backend/Dockerfile", "bitbucket-pipelines.yml"):
-                path = root / "template" / name
-                path.write_text(
-                    path.read_text().replace("-slim-bookworm", "-slim-trixie")
-                )
-            with patch.object(pins, "fetch", return_value="Tags: 3.13.99-slim-trixie"):
-                pins.update_python_runtime(root)
-            self.assertEqual(
-                (root / "template/backend/Dockerfile")
-                .read_text()
-                .count("FROM python:3.13.99-slim-trixie"),
-                2,
             )
 
     def test_frontend_runtime_update_is_repeatable(self):
@@ -118,21 +101,21 @@ class RuntimePinsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             pins.node_version([{"version": "v26.0.0", "lts": False}])
 
-    def test_python_preserves_minor_and_distribution(self):
+    def test_python_preserves_minor(self):
         metadata = "\n".join(
             [
-                "Tags: 3.14.1-slim-bookworm, 3.14-slim-bookworm",
-                "Tags: 3.13.9-slim-bookworm, 3.13-slim-bookworm",
-                "Tags: 3.13.10-slim-bookworm, 3.13.10-slim",
-                "Tags: 3.13.11rc1-slim-bookworm",
+                "Tags: 3.14.1-slim, 3.14-slim",
+                "Tags: 3.13.9-slim, 3.13-slim",
+                "Tags: 3.13.10-slim, 3.13-slim",
+                "Tags: 3.13.11rc1-slim",
             ]
         )
         self.assertEqual(
-            pins.python_version(metadata, "3.13.5-slim-bookworm"),
-            "3.13.10-slim-bookworm",
+            pins.python_version(metadata, "3.13.5-slim"),
+            "3.13.10-slim",
         )
         with self.assertRaises(ValueError):
-            pins.python_version(metadata, "3.12.1-slim-bookworm")
+            pins.python_version(metadata, "3.12.1-slim")
 
     def test_updating_frontend_runtime_keeps_consumers_consistent(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -144,7 +127,7 @@ class RuntimePinsTests(unittest.TestCase):
             (root / "template/.node-version").write_text("22.20.0\n")
             (root / "template/flake.nix").write_text("nodejs_22\n")
             (root / "template/bitbucket-pipelines.yml").write_text(
-                "image: python:3.13.5-slim-bookworm\n  image: node:22.20.0-bookworm\n"
+                "image: python:3.13.5-slim\n  image: node:22.20.0-bookworm\n"
             )
             pins.write_node_version(root, "24.10.1")
             self.assertEqual((root / "template/.node-version").read_text(), "24.10.1\n")
@@ -153,7 +136,7 @@ class RuntimePinsTests(unittest.TestCase):
                 (root / "template/frontend/Dockerfile").read_text(),
             )
             self.assertIn(
-                "python:3.13.5-slim-bookworm",
+                "python:3.13.5-slim",
                 (root / "template/bitbucket-pipelines.yml").read_text(),
             )
             self.assertEqual((root / "template/flake.nix").read_text(), "nodejs_24\n")
