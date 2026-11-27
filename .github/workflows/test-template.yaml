@@ -21,7 +21,7 @@ jobs:
         with:
           python-version-file: 'template/.python-version'
       - run: pip install -r .github/requirements.txt
-      - run: python -m unittest tests.test_template_generation
+      - run: python -m unittest tests.test_template_generation tests.test_e2e_runner
 
   storage-variants:
     runs-on: ubuntu-latest
@@ -163,12 +163,23 @@ jobs:
           curl -fsSL https://raw.githubusercontent.com/tilt-dev/tilt/master/scripts/install.sh | bash
           tilt version
 
-      - name: Run Tilt CI
-        shell: bash
+      - name: Run local Tilt E2E verification
+        working-directory: test-project
         run: |
-          set -euo pipefail
-          cd test-project
-          tilt ci
+          python -m pip install -r e2e/requirements.txt
+          bash e2e/scripts/e2e-run.sh
+
+      - name: Run development Tilt CI
+        if: matrix.nextjs && matrix.wagtail
+        working-directory: test-project
+        run: tilt ci
+
+      - name: Upload Tilt E2E reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tilt-e2e-nextjs-${{ matrix.nextjs }}-wagtail-${{ matrix.wagtail }}
+          path: test-project/e2e/reports/
 
   # Keep one stable required check for branch protection and the nightly updater.
   test-template:

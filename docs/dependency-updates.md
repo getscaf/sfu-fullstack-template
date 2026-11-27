@@ -144,6 +144,11 @@ generated Python pins by hand. For a deliberate runtime upgrade, coordinate
 the version file, Dockerfile, Bitbucket reference, and the Node major in Nix as
 applicable, then regenerate locks when the runtime change requires it.
 
+The E2E runner's pins in `template/e2e/requirements.txt` are maintained
+manually. For a pin update, install the updated requirements in a generated
+project and run `bash e2e/scripts/e2e-run.sh`. The Test template workflow
+exercises those pins across the Next.js and Wagtail matrix.
+
 Run the updater regression tests and validate every Python configuration:
 
 ```bash
